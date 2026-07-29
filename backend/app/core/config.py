@@ -18,6 +18,15 @@ class Settings(BaseSettings):
 
     data_dir: Path = Path(__file__).resolve().parents[2] / "data"
 
+    # If set, structured data (sessions, fact-checks, timelines, etc.) is
+    # stored in this Postgres database instead of the local SQLite file --
+    # used in production so that data survives restarts/redeploys on hosts
+    # with an ephemeral filesystem. Render injects this automatically when a
+    # Postgres database is attached via render.yaml. Video/image/PDF files
+    # still live on local disk either way (see data_dir) and are NOT covered
+    # by this -- they still don't survive a restart without a mounted disk.
+    database_url: str = ""
+
     chunk_seconds: int = 10
     batch_window_seconds: int = 600
     whisper_model: str = "whisper-large-v3-turbo"

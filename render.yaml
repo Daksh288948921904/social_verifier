@@ -11,6 +11,10 @@ services:
         value: /app/backend/data
       - key: COOKIE_SECURE
         value: "true"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: live-cutter-db
+          property: connectionString
       - key: GROQ_API_KEY
         sync: false
       - key: GROQ_API_KEY_2
@@ -27,3 +31,9 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+
+databases:
+  - name: live-cutter-db
+    plan: free
+    databaseName: live_cutter
+    user: live_cutter

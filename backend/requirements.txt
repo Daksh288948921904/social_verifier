@@ -9,3 +9,4 @@ pydantic-settings
 websockets
 python-multipart
 reportlab
+psycopg[binary]

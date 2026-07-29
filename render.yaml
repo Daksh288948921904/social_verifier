@@ -4,12 +4,8 @@ services:
     env: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    plan: starter
+    plan: free
     healthCheckPath: /api/health
-    disk:
-      name: live-cutter-data
-      mountPath: /app/backend/data
-      sizeGB: 5
     envVars:
       - key: DATA_DIR
         value: /app/backend/data

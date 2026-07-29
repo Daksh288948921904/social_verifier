@@ -1,0 +1,131 @@
+import { apiUrl } from './base'
+import { clearToken, getToken } from './auth'
+import type {
+  Clip,
+  DebunkScript,
+  EditorExport,
+  EditorUpload,
+  FullArticle,
+  InstagramKit,
+  Newspaper,
+  ReelCheck,
+  Session,
+  Timeline,
+  TimelineItem,
+} from './types'
+
+function authHeader(): Record<string, string> {
+  const token = getToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+// A 401 means the token is missing/stale (e.g. the backend restarted, which
+// mints a fresh session token) -- clear it and bounce to the login screen
+// rather than surfacing a confusing fetch error on whatever page was open.
+function handleUnauthorized() {
+  clearToken()
+  if (window.location.pathname !== '/login') window.location.href = '/login'
+}
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(apiUrl(path), {
+    headers: { 'Content-Type': 'application/json', ...authHeader() },
+    credentials: 'include',
+    ...options,
+  })
+  if (res.status === 401) {
+    handleUnauthorized()
+    throw new Error('401 Unauthorized')
+  }
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`${res.status} ${res.statusText}: ${body}`)
+  }
+  if (res.status === 204) return undefined as T
+  return res.json() as Promise<T>
+}
+
+export const api = {
+  login: async (username: string, password: string): Promise<{ token: string }> => {
+    // Deliberately not using request(): a failed login is a normal 401 here,
+    // not a stale-session signal, so it must not trigger the global
+    // clear-token-and-redirect-to-login handling request() does for 401s.
+    const res = await fetch(apiUrl('/api/auth/login'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ username, password }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.detail ?? `${res.status} ${res.statusText}`)
+    }
+    return res.json()
+  },
+
+  createSession: (url: string) =>
+    request<Session>('/api/sessions', { method: 'POST', body: JSON.stringify({ url }) }),
+  listSessions: () => request<Session[]>('/api/sessions'),
+  getSession: (id: string) => request<Session>(`/api/sessions/${id}`),
+  stopSession: (id: string) => request<Session>(`/api/sessions/${id}/stop`, { method: 'POST' }),
+  generateNewspaper: (id: string) =>
+    request<Newspaper>(`/api/sessions/${id}/newspaper`, { method: 'POST' }),
+  getNewspaper: (id: string) => request<Newspaper>(`/api/sessions/${id}/newspaper`),
+
+  listClips: (sessionId: string) => request<Clip[]>(`/api/sessions/${sessionId}/clips`),
+  renameClip: (id: string, fields: { title?: string; summary?: string }) =>
+    request<Clip>(`/api/clips/${id}`, { method: 'PATCH', body: JSON.stringify(fields) }),
+  retrimClip: (id: string, start_seconds: number, end_seconds: number) =>
+    request<Clip>(`/api/clips/${id}/retrim`, {
+      method: 'POST',
+      body: JSON.stringify({ start_seconds, end_seconds }),
+    }),
+  deleteClip: (id: string) => request<{ ok: boolean }>(`/api/clips/${id}`, { method: 'DELETE' }),
+  getFullArticle: (clipId: string) =>
+    request<FullArticle>(`/api/clips/${clipId}/full-article`, { method: 'POST' }),
+
+  createReelCheck: (url: string) =>
+    request<ReelCheck>('/api/verify', { method: 'POST', body: JSON.stringify({ url }) }),
+  listReelChecks: () => request<ReelCheck[]>('/api/verify'),
+  getReelCheck: (id: string) => request<ReelCheck>(`/api/verify/${id}`),
+
+  getTimeline: (checkId: string) => request<Timeline>(`/api/verify/${checkId}/editor/timeline`),
+  setTimeline: (checkId: string, items: TimelineItem[]) =>
+    request<Timeline>(`/api/verify/${checkId}/editor/timeline`, {
+      method: 'PUT',
+      body: JSON.stringify(items),
+    }),
+  listUploads: (checkId: string) => request<EditorUpload[]>(`/api/verify/${checkId}/editor/uploads`),
+  uploadEditorVideo: async (checkId: string, file: File): Promise<EditorUpload> => {
+    const form = new FormData()
+    form.append('file', file)
+    // Deliberately not using request(): it forces a JSON Content-Type,
+    // which would break the multipart boundary the browser needs to set
+    // itself for FormData bodies.
+    const res = await fetch(apiUrl(`/api/verify/${checkId}/editor/uploads`), {
+      method: 'POST', body: form, headers: authHeader(), credentials: 'include',
+    })
+    if (res.status === 401) {
+      handleUnauthorized()
+      throw new Error('401 Unauthorized')
+    }
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${await res.text().catch(() => '')}`)
+    return res.json()
+  },
+  compileTimeline: (checkId: string) =>
+    request<EditorExport>(`/api/verify/${checkId}/editor/compile`, { method: 'POST' }),
+  getExport: (checkId: string, exportId: string) =>
+    request<EditorExport>(`/api/verify/${checkId}/editor/exports/${exportId}`),
+
+  createInstagramKit: (checkId: string, exportId: string) =>
+    request<InstagramKit>(`/api/verify/${checkId}/editor/exports/${exportId}/instagram`, {
+      method: 'POST',
+    }),
+  getInstagramKit: (checkId: string, exportId: string, kitId: string) =>
+    request<InstagramKit>(`/api/verify/${checkId}/editor/exports/${exportId}/instagram/${kitId}`),
+
+  createDebunkScript: (checkId: string) =>
+    request<DebunkScript>(`/api/verify/${checkId}/debunk-script`, { method: 'POST' }),
+  getDebunkScript: (checkId: string, scriptId: string) =>
+    request<DebunkScript>(`/api/verify/${checkId}/debunk-script/${scriptId}`),
+}

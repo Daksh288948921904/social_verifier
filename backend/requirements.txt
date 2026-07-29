@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+groq
+openai
+yt-dlp
+setuptools<81
+webrtcvad
+pydantic-settings
+websockets
+python-multipart
+reportlab

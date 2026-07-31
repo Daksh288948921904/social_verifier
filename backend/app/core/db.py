@@ -60,6 +60,13 @@ CREATE TABLE IF NOT EXISTS clip_articles (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS verify_batches (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'processing',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS reel_checks (
     id TEXT PRIMARY KEY,
     url TEXT NOT NULL,
@@ -69,6 +76,7 @@ CREATE TABLE IF NOT EXISTS reel_checks (
     claims_json TEXT,
     conclusion TEXT,
     error_message TEXT,
+    batch_id TEXT REFERENCES verify_batches(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     completed_at TEXT
 );
@@ -130,6 +138,7 @@ CREATE TABLE IF NOT EXISTS debunk_scripts (
 # ALTER TABLE against any database created before they were added.
 COLUMN_MIGRATIONS = [
     ("reel_checks", "conclusion", "TEXT"),
+    ("reel_checks", "batch_id", "TEXT"),
 ]
 
 

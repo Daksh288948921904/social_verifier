@@ -76,6 +76,18 @@ class ReelCheckResponse(BaseModel):
     completed_at: str | None = None
 
 
+class CreateBatchRequest(BaseModel):
+    urls: list[str]
+
+
+class BatchResponse(BaseModel):
+    id: str
+    status: str
+    created_at: str
+    completed_at: str | None = None
+    checks: list[ReelCheckResponse]
+
+
 class TimelineItem(BaseModel):
     type: str  # "claim" | "upload"
     claim_index: int | None = None

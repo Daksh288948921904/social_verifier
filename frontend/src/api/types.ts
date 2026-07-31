@@ -68,6 +68,7 @@ export interface ClaimVerification {
 }
 
 export type ReelCheckStatus =
+  | 'queued'
   | 'downloading'
   | 'transcribing'
   | 'extracting_claims'
@@ -87,6 +88,16 @@ export interface ReelCheck {
   error_message: string | null
   created_at: string
   completed_at: string | null
+}
+
+export type BatchStatus = 'processing' | 'done'
+
+export interface Batch {
+  id: string
+  status: BatchStatus
+  created_at: string
+  completed_at: string | null
+  checks: ReelCheck[]
 }
 
 export interface TimelineItem {

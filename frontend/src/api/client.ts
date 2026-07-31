@@ -1,6 +1,7 @@
 import { apiUrl } from './base'
 import { clearToken, getToken } from './auth'
 import type {
+  Batch,
   Clip,
   DebunkScript,
   EditorExport,
@@ -88,6 +89,11 @@ export const api = {
     request<ReelCheck>('/api/verify', { method: 'POST', body: JSON.stringify({ url }) }),
   listReelChecks: () => request<ReelCheck[]>('/api/verify'),
   getReelCheck: (id: string) => request<ReelCheck>(`/api/verify/${id}`),
+
+  createBatch: (urls: string[]) =>
+    request<Batch>('/api/verify/batch', { method: 'POST', body: JSON.stringify({ urls }) }),
+  listBatches: () => request<Batch[]>('/api/verify/batches'),
+  getBatch: (id: string) => request<Batch>(`/api/verify/batch/${id}`),
 
   getTimeline: (checkId: string) => request<Timeline>(`/api/verify/${checkId}/editor/timeline`),
   setTimeline: (checkId: string, items: TimelineItem[]) =>

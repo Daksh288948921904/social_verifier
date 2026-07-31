@@ -7,7 +7,14 @@ from fastapi.responses import FileResponse
 
 from app.core import db
 from app.core.config import settings
-from app.models.schemas import CreateReelCheckRequest, DebunkScriptResponse, ReelCheckResponse
+from app.models.schemas import (
+    BatchResponse,
+    CreateBatchRequest,
+    CreateReelCheckRequest,
+    DebunkScriptResponse,
+    ReelCheckResponse,
+)
+from app.verifier.batch_runner import run_batch
 from app.verifier.clip_cutter import cut_claim_clip
 from app.verifier.debunk_runner import run_debunk_script
 from app.verifier.runner import run_reel_check
@@ -42,6 +49,58 @@ async def create_reel_check(req: CreateReelCheckRequest):
 def list_reel_checks():
     rows = db.fetch_all("SELECT * FROM reel_checks ORDER BY created_at DESC")
     return [_row_to_response(r) for r in rows]
+
+
+def _batch_row_to_response(row) -> BatchResponse:
+    d = dict(row)
+    check_rows = db.fetch_all(
+        "SELECT * FROM reel_checks WHERE batch_id=? ORDER BY created_at", (d["id"],)
+    )
+    return BatchResponse(
+        id=d["id"], status=d["status"], created_at=d["created_at"], completed_at=d["completed_at"],
+        checks=[_row_to_response(r) for r in check_rows],
+    )
+
+
+@router.post("/batch", response_model=BatchResponse)
+async def create_batch(req: CreateBatchRequest):
+    urls = [u.strip() for u in req.urls if u.strip()]
+    if not urls:
+        raise HTTPException(400, "no URLs provided")
+
+    batch_id = str(uuid.uuid4())
+    db.execute("INSERT INTO verify_batches (id, status) VALUES (?, 'processing')", (batch_id,))
+
+    # Insert every check row up front (status='queued') so the response --
+    # and anyone polling the batch -- immediately shows the full list, not
+    # just whichever one happens to be running. run_batch processes them
+    # in this same order, one at a time.
+    check_ids: list[tuple[str, str]] = []
+    for url in urls:
+        check_id = str(uuid.uuid4())
+        db.execute(
+            "INSERT INTO reel_checks (id, url, status, batch_id) VALUES (?, ?, 'queued', ?)",
+            (check_id, url, batch_id),
+        )
+        check_ids.append((check_id, url))
+
+    asyncio.create_task(run_batch(batch_id, check_ids))
+    row = db.fetch_one("SELECT * FROM verify_batches WHERE id=?", (batch_id,))
+    return _batch_row_to_response(row)
+
+
+@router.get("/batches", response_model=list[BatchResponse])
+def list_batches():
+    rows = db.fetch_all("SELECT * FROM verify_batches ORDER BY created_at DESC")
+    return [_batch_row_to_response(r) for r in rows]
+
+
+@router.get("/batch/{batch_id}", response_model=BatchResponse)
+def get_batch(batch_id: str):
+    row = db.fetch_one("SELECT * FROM verify_batches WHERE id=?", (batch_id,))
+    if not row:
+        raise HTTPException(404, "batch not found")
+    return _batch_row_to_response(row)
 
 
 @router.get("/{check_id}", response_model=ReelCheckResponse)

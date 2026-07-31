@@ -38,13 +38,21 @@ export function VerifyStartPage() {
       <NavBar />
 
       <div className="mb-8 animate-slide-up">
-        <h1 className="mb-2 font-display text-5xl uppercase leading-[0.95] tracking-wide text-neutral-50 sm:text-6xl">
-          Know what's <span className="bg-brand-500 px-2 text-black">actually true</span>
-        </h1>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h1 className="font-display text-5xl uppercase leading-[0.95] tracking-wide text-neutral-50 sm:text-6xl">
+            Know what's <span className="bg-brand-500 px-2 text-black">actually true</span>
+          </h1>
+        </div>
         <p className="mt-3 max-w-md font-mono text-sm text-neutral-500">
           Paste a reel/short link. We'll transcribe it, pull out every factual claim with an exact
           quote, and fact-check each one in depth against live web sources.
         </p>
+        <button
+          onClick={() => navigate('/verify/batch')}
+          className="mt-3 font-mono text-xs uppercase tracking-widest text-neutral-500 underline decoration-neutral-700 underline-offset-4 transition hover:text-brand-400 hover:decoration-brand-500"
+        >
+          Got several links? Check them as a batch →
+        </button>
       </div>
 
       <Card className="animate-slide-up p-2" style={{ animationDelay: '60ms' }}>

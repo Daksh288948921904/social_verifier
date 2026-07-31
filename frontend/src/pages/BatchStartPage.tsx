@@ -37,6 +37,13 @@ export function BatchStartPage() {
       <NavBar />
 
       <div className="mb-8 animate-slide-up">
+        <button
+          onClick={() => navigate('/verify')}
+          className="group mb-3 inline-flex items-center gap-1.5 font-mono text-xs uppercase tracking-widest text-neutral-500 transition hover:text-brand-400"
+        >
+          <span className="transition-transform duration-150 group-hover:-translate-x-0.5">←</span>
+          Back to single-link verify
+        </button>
         <h1 className="mb-2 font-display text-5xl uppercase leading-[0.95] tracking-wide text-neutral-50 sm:text-6xl">
           Check <span className="bg-brand-500 px-2 text-black">many at once</span>
         </h1>

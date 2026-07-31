@@ -47,12 +47,14 @@ export function VerifyStartPage() {
           Paste a reel/short link. We'll transcribe it, pull out every factual claim with an exact
           quote, and fact-check each one in depth against live web sources.
         </p>
-        <button
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={() => navigate('/verify/batch')}
-          className="mt-3 font-mono text-xs uppercase tracking-widest text-neutral-500 underline decoration-neutral-700 underline-offset-4 transition hover:text-brand-400 hover:decoration-brand-500"
+          className="mt-4"
         >
-          Got several links? Check them as a batch →
-        </button>
+          📋 Got several links? Check them as a batch →
+        </Button>
       </div>
 
       <Card className="animate-slide-up p-2" style={{ animationDelay: '60ms' }}>

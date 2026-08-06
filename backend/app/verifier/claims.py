@@ -45,7 +45,7 @@ VERIFICATION_PROMPT_TEMPLATE = """You are a rigorous, in-depth fact-checker. Res
 following claim thoroughly using web search before answering -- do not rely only on prior
 knowledge, since claims in viral social videos are often recent, misleadingly framed, or present
 outdated information as current.
-
+{context_block}
 Claim to verify: "{claim}"
 Exact quote from the source video: "{quote}"
 
@@ -79,6 +79,20 @@ Respond with a single JSON object:
 
 WEB_SEARCH_RETRY_DELAYS = (3.0, 8.0)
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
+
+
+def _format_context_block(prior_context: list[str]) -> str:
+    """Formats retrieved chunks from earlier claims in the same video (see
+    app/rag/claim_store.py) into a prompt section, so a claim that's really
+    a continuation of an earlier one ("he also said...") is verified with
+    the right subject/context instead of in isolation."""
+    if not prior_context:
+        return ""
+    joined = "\n".join(f"- {c}" for c in prior_context)
+    return (
+        "\nThis claim may continue or build on earlier claims made in the same video. "
+        f"For context, here is what earlier claims in this video established:\n{joined}\n"
+    )
 
 
 @dataclass
@@ -139,7 +153,9 @@ def _parse_verification(content: str) -> tuple[str, str, list[str]]:
     return verdict, analysis, sources
 
 
-def _verify_via_web_search(claim: ExtractedClaim) -> tuple[str, str, list[str]] | None:
+def _verify_via_web_search(
+    claim: ExtractedClaim, prior_context: list[str],
+) -> tuple[str, str, list[str]] | None:
     """Uses OpenAI's web-search-enabled Responses API for real, grounded
     fact-checking. Retries a couple of times on transient errors before
     giving up (returns None, never raises) so the caller can fall back to
@@ -150,7 +166,9 @@ def _verify_via_web_search(claim: ExtractedClaim) -> tuple[str, str, list[str]] 
         logger.warning("OPENAI_API_KEY not configured; skipping web-search verification")
         return None
 
-    prompt = VERIFICATION_PROMPT_TEMPLATE.format(claim=claim.claim, quote=claim.quote)
+    prompt = VERIFICATION_PROMPT_TEMPLATE.format(
+        claim=claim.claim, quote=claim.quote, context_block=_format_context_block(prior_context),
+    )
     for attempt, delay in enumerate((0.0, *WEB_SEARCH_RETRY_DELAYS)):
         if delay:
             time.sleep(delay)
@@ -168,9 +186,12 @@ def _verify_via_web_search(claim: ExtractedClaim) -> tuple[str, str, list[str]] 
     return None
 
 
-def _verify_via_plain_model(claim: ExtractedClaim) -> tuple[str, str, list[str]]:
+def _verify_via_plain_model(claim: ExtractedClaim, prior_context: list[str]) -> tuple[str, str, list[str]]:
     client = next_client()
-    user_content = f'Claim to verify: "{claim.claim}"\n\nExact quote from the source video: "{claim.quote}"'
+    user_content = (
+        f"{_format_context_block(prior_context)}\n"
+        f'Claim to verify: "{claim.claim}"\n\nExact quote from the source video: "{claim.quote}"'
+    )
     response = _call_groq_with_retry(lambda: client.chat.completions.create(
         model=CLAIM_MODEL,
         messages=[
@@ -191,8 +212,14 @@ def _verify_via_plain_model(claim: ExtractedClaim) -> tuple[str, str, list[str]]
         )
 
 
-def verify_claim(claim: ExtractedClaim) -> ClaimVerification:
-    grounded_result = _verify_via_web_search(claim)
+def verify_claim(claim: ExtractedClaim, prior_context: list[str] | None = None) -> ClaimVerification:
+    """prior_context is text retrieved from earlier claims in the same video
+    (app/rag/claim_store.py::search_prior_context) -- used when a claim is a
+    continuation of one made earlier, so it's verified with the right
+    context instead of in isolation. Empty/omitted for a video's first claim
+    or when the retrieval pipeline isn't configured."""
+    prior_context = prior_context or []
+    grounded_result = _verify_via_web_search(claim, prior_context)
     if grounded_result is not None:
         verdict, analysis, sources = grounded_result
         return ClaimVerification(
@@ -202,7 +229,7 @@ def verify_claim(claim: ExtractedClaim) -> ClaimVerification:
         )
 
     logger.warning("Falling back to non-web-search verification for claim: %r", claim.claim)
-    verdict, analysis, sources = _verify_via_plain_model(claim)
+    verdict, analysis, sources = _verify_via_plain_model(claim, prior_context)
     analysis = (
         "[Not web-verified -- the live fact-check search was unavailable, this reflects only "
         f"the model's training knowledge.] {analysis}"

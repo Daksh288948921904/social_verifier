@@ -2,6 +2,7 @@ fastapi
 uvicorn[standard]
 groq
 openai
+qdrant-client
 yt-dlp
 setuptools<81
 webrtcvad

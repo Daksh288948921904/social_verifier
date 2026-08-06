@@ -16,6 +16,15 @@ class Settings(BaseSettings):
 
     openai_api_key: str = ""
 
+    # Qdrant Cloud cluster used by the claim-verification RAG pipeline (see
+    # app/rag/claim_store.py) to retrieve context from earlier claims in the
+    # same video when verifying a later, possibly-continuation claim. Left
+    # unset, that retrieval step is skipped and verification behaves exactly
+    # as before -- it never blocks the pipeline.
+    qdrant_url: str = ""
+    qdrant_api_key: str = ""
+    qdrant_collection: str = "claim_chunks"
+
     data_dir: Path = Path(__file__).resolve().parents[2] / "data"
 
     # If set, structured data (sessions, fact-checks, timelines, etc.) is

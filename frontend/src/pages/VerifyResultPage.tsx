@@ -105,7 +105,7 @@ function VerdictSummaryBar({ claims }: { claims: ClaimVerification[] }) {
   for (const c of claims) counts[c.verdict] = (counts[c.verdict] ?? 0) + 1
 
   return (
-    <div className="mb-6 flex flex-wrap items-center gap-2 animate-slide-up">
+    <div className="flex flex-wrap items-center gap-2 animate-slide-up">
       <span className="font-mono text-sm text-neutral-500">
         {claims.length} claim{claims.length === 1 ? '' : 's'} checked:
       </span>
@@ -417,7 +417,16 @@ export function VerifyResultPage() {
 
       {check && check.claims.length > 0 && (
         <div>
-          <VerdictSummaryBar claims={check.claims} />
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+            <VerdictSummaryBar claims={check.claims} />
+            <a
+              href={apiUrl(`/api/verify/${check.id}/claims-report/pdf`)}
+              download="fact_check_report.pdf"
+              className="shrink-0 border-2 border-emerald-600 bg-black px-3 py-1.5 font-mono text-xs uppercase text-emerald-400 shadow-[3px_3px_0_0_#000] transition hover:bg-emerald-950"
+            >
+              ⬇ Download Full Report (PDF)
+            </a>
+          </div>
           <div className="space-y-4">
             {check.claims.map((claim, i) => (
               <ClaimCard key={i} claim={claim} index={i} checkId={check.id} />

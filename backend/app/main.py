@@ -11,6 +11,7 @@ from app.api import auth, clips, editor, sessions, verify, ws
 from app.core import db
 from app.core.auth import SESSION_TOKEN
 from app.core.config import settings
+from app.rag import claim_store
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -77,6 +78,19 @@ def startup():
         logger.warning(
             "OPENAI_API_KEY is not set -- reel claim verification will fall back to a "
             "non-web-search Groq model until a real key is configured in .env"
+        )
+    if settings.qdrant_url:
+        try:
+            claim_store.ensure_collection()
+        except Exception:
+            logger.exception(
+                "Failed to reach Qdrant at startup -- claim verification will run without "
+                "cross-claim context until this is fixed"
+            )
+    else:
+        logger.warning(
+            "QDRANT_URL is not set -- reel claim verification will run without cross-claim "
+            "context (continuation claims won't see earlier claims in the same video)"
         )
 
 

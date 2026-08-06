@@ -11,6 +11,7 @@ from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer,
 from app.core import db
 from app.core.config import settings
 from app.core.groq_pool import call_with_retry, next_client
+from app.verifier.pdf_text import esc
 
 VERDICT_LABEL = {
     "true": "TRUE", "false": "FALSE", "misleading": "MISLEADING",
@@ -170,34 +171,34 @@ def render_pdf(script: dict, output_path: Path) -> Path:
         leftMargin=0.8 * inch, rightMargin=0.8 * inch,
     )
     flow = [
-        Paragraph(script["title"], _TITLE_STYLE),
-        Paragraph(f'"{script["intro_hook"]}"', _HOOK_STYLE),
+        Paragraph(esc(script["title"]), _TITLE_STYLE),
+        Paragraph(f'"{esc(script["intro_hook"])}"', _HOOK_STYLE),
         HRFlowable(width="100%", color=colors.HexColor("#cccccc"), thickness=1),
         Spacer(1, 10),
     ]
 
     for beat in script["beats"]:
-        verdict_label = VERDICT_LABEL.get(beat["verdict"], beat["verdict"].upper())
+        verdict_label = VERDICT_LABEL.get(beat["verdict"], esc(beat["verdict"].upper()))
 
         flow.append(_labeled_bar(
             f'ORIGINAL CLIP -- CLAIM {beat["claim_index"] + 1}', _CLIP_LABEL_STYLE, "#1a1a1a",
         ))
         flow.append(Spacer(1, 4))
-        flow.append(Paragraph(f'“{beat["claim_quote"]}”', _QUOTE_STYLE))
+        flow.append(Paragraph(f'“{esc(beat["claim_quote"])}”', _QUOTE_STYLE))
         flow.append(Paragraph(f"Verdict: {verdict_label}", _VERDICT_STYLE))
         flow.append(Spacer(1, 8))
 
         flow.append(_labeled_bar("YOUR REACTION VIDEO", _REACTION_LABEL_STYLE, "#7a1010"))
         flow.append(Spacer(1, 4))
-        flow.append(Paragraph(beat["reaction_narration"], _NARRATION_STYLE))
+        flow.append(Paragraph(esc(beat["reaction_narration"]), _NARRATION_STYLE))
         if beat.get("humor_cue"):
-            flow.append(Paragraph(f"HUMOR CUE: {beat['humor_cue']}", _HUMOR_STYLE))
+            flow.append(Paragraph(f"HUMOR CUE: {esc(beat['humor_cue'])}", _HUMOR_STYLE))
         if beat.get("question_cue"):
-            flow.append(Paragraph(f"ASK THE AUDIENCE: {beat['question_cue']}", _QUESTION_STYLE))
+            flow.append(Paragraph(f"ASK THE AUDIENCE: {esc(beat['question_cue'])}", _QUESTION_STYLE))
         flow.append(Spacer(1, 14))
 
     flow.append(HRFlowable(width="100%", color=colors.HexColor("#cccccc"), thickness=1))
-    flow.append(Paragraph(script["outro_cta"], _CTA_STYLE))
+    flow.append(Paragraph(esc(script["outro_cta"]), _CTA_STYLE))
 
     doc.build(flow)
     return output_path

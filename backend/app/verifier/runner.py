@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.core import db
 from app.core.config import settings
+from app.rag import claim_store
 from app.verifier.claims import (
     ClaimVerification,
     extract_claims,
@@ -18,6 +19,30 @@ from app.verifier.download import download_clip, extract_audio
 from app.verifier.manuscript import build_manuscript
 
 logger = logging.getLogger(__name__)
+
+
+def _prior_context(check_id: str, claim_index: int, query_text: str) -> list[str]:
+    """Best-effort retrieval from Qdrant -- claim verification must keep
+    working even if Qdrant isn't configured or is briefly unreachable, it
+    just loses the cross-claim context in that case."""
+    if not settings.qdrant_url:
+        return []
+    try:
+        return claim_store.search_prior_context(check_id, claim_index, query_text)
+    except Exception:
+        logger.exception("Prior-claim context retrieval failed for %s claim %d", check_id, claim_index)
+        return []
+
+
+def _index_claim(check_id: str, claim_index: int, verification: ClaimVerification) -> None:
+    if not settings.qdrant_url:
+        return
+    try:
+        claim_store.index_claim(
+            check_id, claim_index, verification.quote, verification.claim, verification.analysis,
+        )
+    except Exception:
+        logger.exception("Indexing claim %d into Qdrant failed for %s", claim_index, check_id)
 
 
 def _set_status(check_id: str, status: str, progress: str = "") -> None:
@@ -60,9 +85,13 @@ async def run_reel_check(check_id: str, url: str) -> None:
             verification_dicts = []
             for i, claim in enumerate(claims):
                 _set_status(check_id, "verifying_claims", f"{i + 1}/{len(claims)}")
-                verification = await asyncio.to_thread(verify_claim, claim)
+                prior_context = await asyncio.to_thread(
+                    _prior_context, check_id, i, f"{claim.claim} {claim.quote}",
+                )
+                verification = await asyncio.to_thread(verify_claim, claim, prior_context)
                 verifications.append(verification)
                 verification_dicts.append(verify_claim_to_dict(verification))
+                await asyncio.to_thread(_index_claim, check_id, i, verification)
                 # Persist incrementally so a slow/failed later claim doesn't
                 # lose already-verified ones, and the frontend can show
                 # results as they arrive instead of only at the very end.

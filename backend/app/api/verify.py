@@ -3,7 +3,7 @@ import json
 import uuid
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from app.core import db
 from app.core.config import settings
@@ -15,6 +15,7 @@ from app.models.schemas import (
     ReelCheckResponse,
 )
 from app.verifier.batch_runner import run_batch
+from app.verifier.claims_report import render_pdf as render_claims_report_pdf
 from app.verifier.clip_cutter import cut_claim_clip
 from app.verifier.debunk_runner import run_debunk_script
 from app.verifier.runner import run_reel_check
@@ -134,6 +135,22 @@ def get_claim_clip(check_id: str, claim_index: int):
         cut_claim_clip(source_matches[0], claim["start_seconds"], claim["end_seconds"], clip_path)
 
     return FileResponse(clip_path, media_type="video/mp4", filename=f"claim_{claim_index + 1}.mp4")
+
+
+@router.get("/{check_id}/claims-report/pdf")
+def get_claims_report_pdf_route(check_id: str):
+    row = db.fetch_one(
+        "SELECT url, status, claims_json, conclusion FROM reel_checks WHERE id=?", (check_id,)
+    )
+    if not row or row["status"] != "done" or not row["claims_json"]:
+        raise HTTPException(404, "claims report not ready")
+
+    claims = json.loads(row["claims_json"])
+    pdf_bytes = render_claims_report_pdf(row["url"], claims, row["conclusion"] or "")
+    return Response(
+        content=pdf_bytes, media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="fact_check_report.pdf"'},
+    )
 
 
 def _script_row_to_response(row) -> DebunkScriptResponse:

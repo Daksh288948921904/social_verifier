@@ -1,12 +1,21 @@
+import asyncio
+import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from app.clipping.cutter import cut_clip
+from app.clipping.reel_runner import run_reel_export
 from app.clipping.thumbnail import generate_thumbnail
 from app.core import db
-from app.models.schemas import ClipResponse, FullArticleResponse, RenameClipRequest, RetrimClipRequest
+from app.models.schemas import (
+    ClipReelResponse,
+    ClipResponse,
+    FullArticleResponse,
+    RenameClipRequest,
+    RetrimClipRequest,
+)
 from app.rag.newspaper import generate_full_article
 from app.session_runner import active_sessions
 
@@ -94,3 +103,42 @@ def get_full_article(clip_id: str):
     _get_clip_row(clip_id)
     article = generate_full_article(clip_id)
     return FullArticleResponse(clip_id=clip_id, article=article)
+
+
+def _row_to_reel(row) -> ClipReelResponse:
+    d = dict(row)
+    return ClipReelResponse(
+        id=d["id"], clip_id=d["clip_id"], status=d["status"],
+        hook_text=d["hook_text"], audio_style=d["audio_style"],
+        error_message=d["error_message"],
+        created_at=d["created_at"], completed_at=d["completed_at"],
+    )
+
+
+@router.post("/clips/{clip_id}/reel", response_model=ClipReelResponse)
+async def create_clip_reel(clip_id: str):
+    _get_clip_row(clip_id)
+    reel_id = str(uuid.uuid4())
+    db.execute(
+        "INSERT INTO clip_reels (id, clip_id, status) VALUES (?, ?, 'generating')",
+        (reel_id, clip_id),
+    )
+    asyncio.create_task(run_reel_export(reel_id, clip_id))
+    row = db.fetch_one("SELECT * FROM clip_reels WHERE id=?", (reel_id,))
+    return _row_to_reel(row)
+
+
+@router.get("/clips/{clip_id}/reel/{reel_id}", response_model=ClipReelResponse)
+def get_clip_reel(clip_id: str, reel_id: str):
+    row = db.fetch_one("SELECT * FROM clip_reels WHERE id=? AND clip_id=?", (reel_id, clip_id))
+    if not row:
+        raise HTTPException(404, "reel not found")
+    return _row_to_reel(row)
+
+
+@router.get("/clips/{clip_id}/reel/{reel_id}/video")
+def get_clip_reel_video(clip_id: str, reel_id: str):
+    row = db.fetch_one("SELECT * FROM clip_reels WHERE id=? AND clip_id=?", (reel_id, clip_id))
+    if not row or row["status"] != "done" or not row["output_path"]:
+        raise HTTPException(404, "reel not ready")
+    return FileResponse(row["output_path"], media_type="video/mp4", filename="reel.mp4")

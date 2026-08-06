@@ -3,6 +3,7 @@ import { clearToken, getToken } from './auth'
 import type {
   Batch,
   Clip,
+  ClipReel,
   DebunkScript,
   EditorExport,
   EditorUpload,
@@ -81,6 +82,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ start_seconds, end_seconds }),
     }),
+
+  createClipReel: (clipId: string) =>
+    request<ClipReel>(`/api/clips/${clipId}/reel`, { method: 'POST' }),
+  getClipReel: (clipId: string, reelId: string) =>
+    request<ClipReel>(`/api/clips/${clipId}/reel/${reelId}`),
   deleteClip: (id: string) => request<{ ok: boolean }>(`/api/clips/${id}`, { method: 'DELETE' }),
   getFullArticle: (clipId: string) =>
     request<FullArticle>(`/api/clips/${clipId}/full-article`, { method: 'POST' }),

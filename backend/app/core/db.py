@@ -48,6 +48,18 @@ CREATE TABLE IF NOT EXISTS clip_embeddings (
     text TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS clip_reels (
+    id TEXT PRIMARY KEY,
+    clip_id TEXT NOT NULL REFERENCES clips(id),
+    status TEXT NOT NULL DEFAULT 'generating',
+    hook_text TEXT,
+    audio_style TEXT,
+    output_path TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS session_newspapers (
     session_id TEXT PRIMARY KEY REFERENCES sessions(id),
     content TEXT NOT NULL,

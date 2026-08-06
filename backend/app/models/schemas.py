@@ -36,6 +36,17 @@ class RetrimClipRequest(BaseModel):
     end_seconds: float
 
 
+class ClipReelResponse(BaseModel):
+    id: str
+    clip_id: str
+    status: str
+    hook_text: str | None = None
+    audio_style: str | None = None
+    error_message: str | None = None
+    created_at: str
+    completed_at: str | None = None
+
+
 class NewspaperResponse(BaseModel):
     session_id: str
     content: str

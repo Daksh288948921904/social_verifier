@@ -10,9 +10,11 @@ RUN npm run build
 FROM python:3.13-slim
 
 # ffmpeg/ffprobe for clip cutting + compilation; build-essential because
-# webrtcvad compiles a small C extension at pip-install time.
+# webrtcvad compiles a small C extension at pip-install time; fonts-dejavu-core
+# so ffmpeg's drawtext filter (Reel hook title cards) has a real bold font to
+# render -- this slim base image ships with none by default.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg build-essential \
+    ffmpeg build-essential fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/backend

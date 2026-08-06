@@ -46,6 +46,19 @@ export interface Clip {
   created_at: string
 }
 
+export type ClipReelStatus = 'generating' | 'done' | 'error'
+
+export interface ClipReel {
+  id: string
+  clip_id: string
+  status: ClipReelStatus
+  hook_text: string | null
+  audio_style: string | null
+  error_message: string | null
+  created_at: string
+  completed_at: string | null
+}
+
 export type SessionEvent =
   | { type: 'status'; status: string }
   | { type: 'transcript_tick'; text: string; start: number; end: number }

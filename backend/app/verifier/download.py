@@ -20,7 +20,18 @@ def download_clip(url: str, dest_dir: Path) -> Path:
     dest_dir.mkdir(parents=True, exist_ok=True)
     output_template = str(dest_dir / "source.%(ext)s")
     result = subprocess.run(
-        [settings.ytdlp_bin, "-f", "best", "-o", output_template, "--no-playlist", url],
+        [
+            settings.ytdlp_bin,
+            # "-f best" picks the single best *pre-merged* format, which for
+            # some sources is a video-only stream with no audio track at
+            # all -- yt-dlp warns about exactly this. bestvideo+bestaudio
+            # downloads both and lets yt-dlp mux them (via ffmpeg, already
+            # a dependency here); the /best fallback covers sources that
+            # only ever offer a single combined format to begin with.
+            "-f", "bestvideo+bestaudio/best",
+            "--merge-output-format", "mp4",
+            "-o", output_template, "--no-playlist", url,
+        ],
         capture_output=True, text=True, timeout=180,
     )
     if result.returncode != 0:

@@ -1,8 +1,8 @@
-import subprocess
 import tempfile
 from pathlib import Path
 
 from app.core.config import settings
+from app.core.proc import run_checked
 
 # highpass: strip sub-80Hz rumble/hum that carries no speech content.
 # afftdn: general FFT-based denoiser for broadcast noise floor.
@@ -27,7 +27,7 @@ def apply_dsp(input_wav: Path, output_wav: Path, filter_chain: str = DSP_FILTER_
         "-y",
         str(output_wav),
     ]
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    run_checked(cmd)
     return output_wav
 
 
@@ -41,16 +41,13 @@ def concat_wavs(input_wavs: list[Path], output_path: Path) -> Path:
             f.write(f"file '{p}'\n")
         list_path = f.name
     try:
-        subprocess.run(
-            [
-                settings.ffmpeg_bin, "-loglevel", "error",
-                "-f", "concat", "-safe", "0",
-                "-i", list_path,
-                "-c", "copy",
-                "-y", str(output_path),
-            ],
-            check=True, capture_output=True, text=True,
-        )
+        run_checked([
+            settings.ffmpeg_bin, "-loglevel", "error",
+            "-f", "concat", "-safe", "0",
+            "-i", list_path,
+            "-c", "copy",
+            "-y", str(output_path),
+        ])
     finally:
         Path(list_path).unlink(missing_ok=True)
     return output_path

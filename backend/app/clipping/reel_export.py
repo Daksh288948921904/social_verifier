@@ -1,5 +1,4 @@
 import json
-import subprocess
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -7,6 +6,7 @@ from PIL import Image, ImageDraw, ImageFont
 from app.core import db
 from app.core.config import settings
 from app.core.groq_pool import call_with_retry, next_client
+from app.core.proc import run_checked
 
 HOOK_PROMPT = """You are packaging a news clip as a vertical Reel for social media. You are given
 the clip's title and summary. Produce two things:
@@ -249,17 +249,14 @@ def render_reel(clip_video_path: Path, overlay_seq_pattern: Path, output_path: P
         "[base][1:v]overlay=0:0[v]"
     )
 
-    subprocess.run(
-        [
-            settings.ffmpeg_bin, "-loglevel", "error",
-            "-i", str(clip_video_path),
-            "-framerate", str(OVERLAY_FPS), "-i", str(overlay_seq_pattern),
-            "-filter_complex", filter_complex,
-            "-map", "[v]", "-map", "0:a?",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-            "-c:a", "aac",
-            "-y", str(output_path),
-        ],
-        check=True, capture_output=True, text=True,
-    )
+    run_checked([
+        settings.ffmpeg_bin, "-loglevel", "error",
+        "-i", str(clip_video_path),
+        "-framerate", str(OVERLAY_FPS), "-i", str(overlay_seq_pattern),
+        "-filter_complex", filter_complex,
+        "-map", "[v]", "-map", "0:a?",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-c:a", "aac",
+        "-y", str(output_path),
+    ])
     return output_path

@@ -1,7 +1,7 @@
-import subprocess
 from pathlib import Path
 
 from app.core.config import settings
+from app.core.proc import run_checked
 
 # Portrait canvas matching typical reel/short dimensions -- every input clip
 # is scaled/padded onto this common canvas before concatenation, since a
@@ -46,5 +46,5 @@ def compile_timeline(clip_paths: list[Path], output_path: Path) -> Path:
         "-c:v", "libx264", "-c:a", "aac",
         str(output_path),
     ]
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    run_checked(cmd)
     return output_path

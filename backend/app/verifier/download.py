@@ -2,6 +2,7 @@ import subprocess
 from pathlib import Path
 
 from app.core.config import settings
+from app.core.proc import run_checked
 
 
 class DownloadError(RuntimeError):
@@ -31,13 +32,10 @@ def download_clip(url: str, dest_dir: Path) -> Path:
 
 
 def extract_audio(video_path: Path, output_path: Path) -> Path:
-    subprocess.run(
-        [
-            settings.ffmpeg_bin, "-loglevel", "error", "-y",
-            "-i", str(video_path),
-            "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
-            str(output_path),
-        ],
-        check=True, capture_output=True, text=True,
-    )
+    run_checked([
+        settings.ffmpeg_bin, "-loglevel", "error", "-y",
+        "-i", str(video_path),
+        "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
+        str(output_path),
+    ])
     return output_path

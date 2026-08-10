@@ -1,8 +1,8 @@
-import subprocess
 import tempfile
 from pathlib import Path
 
 from app.core.config import settings
+from app.core.proc import run_checked
 from app.ingest.segment_index import SegmentIndex
 
 
@@ -12,33 +12,27 @@ def _concat(segment_paths: list[Path], output_path: Path) -> Path:
             f.write(f"file '{p}'\n")
         list_path = f.name
     try:
-        subprocess.run(
-            [
-                settings.ffmpeg_bin, "-loglevel", "error",
-                "-f", "concat", "-safe", "0",
-                "-i", list_path,
-                "-c", "copy",
-                "-y", str(output_path),
-            ],
-            check=True, capture_output=True, text=True,
-        )
+        run_checked([
+            settings.ffmpeg_bin, "-loglevel", "error",
+            "-f", "concat", "-safe", "0",
+            "-i", list_path,
+            "-c", "copy",
+            "-y", str(output_path),
+        ])
     finally:
         Path(list_path).unlink(missing_ok=True)
     return output_path
 
 
 def _trim_and_remux(input_path: Path, start: float, end: float, output_path: Path) -> Path:
-    subprocess.run(
-        [
-            settings.ffmpeg_bin, "-loglevel", "error",
-            "-ss", f"{start:.3f}",
-            "-to", f"{end:.3f}",
-            "-i", str(input_path),
-            "-c", "copy",
-            "-y", str(output_path),
-        ],
-        check=True, capture_output=True, text=True,
-    )
+    run_checked([
+        settings.ffmpeg_bin, "-loglevel", "error",
+        "-ss", f"{start:.3f}",
+        "-to", f"{end:.3f}",
+        "-i", str(input_path),
+        "-c", "copy",
+        "-y", str(output_path),
+    ])
     return output_path
 
 

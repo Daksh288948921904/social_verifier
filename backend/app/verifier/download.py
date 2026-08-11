@@ -39,7 +39,39 @@ def download_clip(url: str, dest_dir: Path) -> Path:
     matches = sorted(dest_dir.glob("source.*"))
     if not matches:
         raise DownloadError(f"yt-dlp reported success but produced no file for {url}")
-    return matches[0]
+
+    video_path = matches[0]
+    if not _has_audio_stream(video_path):
+        # Confirmed locally that bestvideo+bestaudio correctly merges both
+        # tracks for URLs that fail this way in production -- so a missing
+        # audio track here means the *download* silently came back
+        # video-only in this specific environment (most likely the
+        # audio-track request being blocked/rate-limited for this server's
+        # IP; some platforms treat datacenter/cloud egress IPs differently
+        # than residential ones), not a bug in the format selection logic.
+        # Failing clearly here beats a cryptic ffmpeg crash three steps
+        # later in extract_audio.
+        raise DownloadError(
+            f"Downloaded video for {url} has no audio track (video-only download). "
+            "This can happen when the source platform serves a different/restricted "
+            "set of formats to this server than to a regular browser -- there's "
+            "nothing to fact-check without audio to transcribe."
+        )
+    return video_path
+
+
+def _has_audio_stream(video_path: Path) -> bool:
+    result = subprocess.run(
+        [
+            settings.ffprobe_bin, "-v", "error",
+            "-select_streams", "a",
+            "-show_entries", "stream=codec_type",
+            "-of", "csv=p=0",
+            str(video_path),
+        ],
+        capture_output=True, text=True,
+    )
+    return bool(result.stdout.strip())
 
 
 def extract_audio(video_path: Path, output_path: Path) -> Path:

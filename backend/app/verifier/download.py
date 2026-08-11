@@ -21,13 +21,17 @@ def download_clip(url: str, dest_dir: Path) -> Path:
     output_template = str(dest_dir / "source.%(ext)s")
     cmd = [
         settings.ytdlp_bin,
-        # "-f best" picks the single best *pre-merged* format, which for
-        # some sources is a video-only stream with no audio track at
-        # all -- yt-dlp warns about exactly this. bestvideo+bestaudio
-        # downloads both and lets yt-dlp mux them (via ffmpeg, already
-        # a dependency here); the /best fallback covers sources that
-        # only ever offer a single combined format to begin with.
-        "-f", "bestvideo+bestaudio/best",
+        # Prefer a single already-combined (non-DASH) format first: Instagram
+        # in particular splits video into a separate DASH manifest with
+        # individually-fetched video-only and audio-only streams, and the
+        # audio-track fetch specifically appears to come back
+        # blocked/restricted from this server's IP even though the same
+        # merge works fine from a home connection -- confirmed by
+        # reproducing it. A plain combined format is one single request with
+        # both tracks baked in, sidestepping that entirely. Falls back to
+        # the DASH bestvideo+bestaudio merge for sources that don't offer a
+        # combined format at all.
+        "-f", "best[format_id!*=dash]/bestvideo+bestaudio/best",
         "--merge-output-format", "mp4",
     ]
     if settings.ytdlp_cookies_file:

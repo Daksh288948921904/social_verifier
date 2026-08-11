@@ -46,6 +46,16 @@ class Settings(BaseSettings):
     ffprobe_bin: str = "ffprobe"
     ytdlp_bin: str = "yt-dlp"
 
+    # Path to a Netscape-format cookies.txt exported from a real logged-in
+    # browser session. Some platforms (Instagram especially) serve a more
+    # restricted format list -- sometimes video with no audio track at all
+    # -- to requests that look unauthenticated/automated, particularly from
+    # datacenter IPs; a logged-in session is generally treated less
+    # suspiciously. Left unset, yt-dlp runs unauthenticated as before. On
+    # Render, upload the file as a Secret File and point this at
+    # /etc/secrets/<filename>.
+    ytdlp_cookies_file: str = ""
+
     # Comma-separated list of allowed frontend origins for CORS, e.g.
     # "https://live-cutter.onrender.com,https://live-cutter.vercel.app".
     # Defaults to the Vite dev server so local development keeps working

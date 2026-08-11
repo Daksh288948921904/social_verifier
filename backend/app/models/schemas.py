@@ -1,8 +1,22 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+
+def _validate_url(value: str) -> str:
+    value = value.strip()
+    # Cheap sanity check, not a full URL parser -- just enough to reject
+    # obviously-wrong input (e.g. someone accidentally pasting a whole file's
+    # contents instead of a link) with a clear 400 instead of it silently
+    # becoming a reel_checks row that fails later with that pasted content
+    # leaking into a yt-dlp error message.
+    if len(value) > 2000 or not value.startswith(("http://", "https://")):
+        raise ValueError("must be a valid http(s) URL")
+    return value
 
 
 class CreateSessionRequest(BaseModel):
     url: str
+
+    _validate = field_validator("url")(_validate_url)
 
 
 class SessionResponse(BaseModel):
@@ -61,6 +75,8 @@ class FullArticleResponse(BaseModel):
 class CreateReelCheckRequest(BaseModel):
     url: str
 
+    _validate = field_validator("url")(_validate_url)
+
 
 class ClaimVerificationResponse(BaseModel):
     quote: str
@@ -89,6 +105,11 @@ class ReelCheckResponse(BaseModel):
 
 class CreateBatchRequest(BaseModel):
     urls: list[str]
+
+    @field_validator("urls")
+    @classmethod
+    def _validate_urls(cls, values: list[str]) -> list[str]:
+        return [_validate_url(v) for v in values]
 
 
 class BatchResponse(BaseModel):

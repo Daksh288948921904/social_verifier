@@ -14,26 +14,27 @@ def download_clip(url: str, dest_dir: Path) -> Path:
     yt-dlp. Unlike the live-capture pipeline, this is a one-shot finite
     download of a short video -- no segmenting, no continuous re-resolution.
     yt-dlp supports most platforms (YouTube Shorts, TikTok, X/Twitter,
-    Facebook) out of the box; Instagram in particular sometimes needs a
-    logged-in cookie file to reliably resolve, which isn't configured here,
-    so an Instagram link may fail without one."""
+    Facebook) out of the box; Instagram in particular sometimes serves a
+    restricted format list (occasionally video with no audio track at all)
+    to requests that look unauthenticated -- see ytdlp_cookies_file."""
     dest_dir.mkdir(parents=True, exist_ok=True)
     output_template = str(dest_dir / "source.%(ext)s")
-    result = subprocess.run(
-        [
-            settings.ytdlp_bin,
-            # "-f best" picks the single best *pre-merged* format, which for
-            # some sources is a video-only stream with no audio track at
-            # all -- yt-dlp warns about exactly this. bestvideo+bestaudio
-            # downloads both and lets yt-dlp mux them (via ffmpeg, already
-            # a dependency here); the /best fallback covers sources that
-            # only ever offer a single combined format to begin with.
-            "-f", "bestvideo+bestaudio/best",
-            "--merge-output-format", "mp4",
-            "-o", output_template, "--no-playlist", url,
-        ],
-        capture_output=True, text=True, timeout=180,
-    )
+    cmd = [
+        settings.ytdlp_bin,
+        # "-f best" picks the single best *pre-merged* format, which for
+        # some sources is a video-only stream with no audio track at
+        # all -- yt-dlp warns about exactly this. bestvideo+bestaudio
+        # downloads both and lets yt-dlp mux them (via ffmpeg, already
+        # a dependency here); the /best fallback covers sources that
+        # only ever offer a single combined format to begin with.
+        "-f", "bestvideo+bestaudio/best",
+        "--merge-output-format", "mp4",
+    ]
+    if settings.ytdlp_cookies_file:
+        cmd += ["--cookies", settings.ytdlp_cookies_file]
+    cmd += ["-o", output_template, "--no-playlist", url]
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
     if result.returncode != 0:
         raise DownloadError(f"yt-dlp failed to download {url}: {result.stderr.strip()}")
     matches = sorted(dest_dir.glob("source.*"))

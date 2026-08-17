@@ -2,7 +2,7 @@ import json
 import logging
 import re
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 
 from app.core.config import settings
 from app.core.groq_pool import call_with_retry as _call_groq_with_retry
@@ -45,7 +45,7 @@ VERIFICATION_PROMPT_TEMPLATE = """You are a rigorous, in-depth fact-checker. Res
 following claim thoroughly using web search before answering -- do not rely only on prior
 knowledge, since claims in viral social videos are often recent, misleadingly framed, or present
 outdated information as current.
-{context_block}
+{gov_context_block}{context_block}
 Claim to verify: "{claim}"
 Exact quote from the source video: "{quote}"
 
@@ -77,6 +77,31 @@ Respond with a single JSON object:
 }
 """
 
+GOV_VERIFICATION_PROMPT_TEMPLATE = """You are a rigorous fact-checker assessing whether a specific
+claim is supported, contradicted, or not addressed by excerpts retrieved from official Indian
+government sources. Base your judgment ONLY on the excerpts below -- do not use outside knowledge,
+web search, or assume anything not stated in them. This is a narrower, independent check from the
+claim's general fact-check verdict, scoped only to what these specific official sources say.
+
+Claim to check: "{claim}"
+
+Official source excerpts:
+{excerpts}
+
+Respond with ONLY a single JSON object, no other text, no markdown code fences, matching this
+schema exactly:
+{{"verdict": "confirmed" | "contradicted" | "partially confirmed" | "not addressed",
+  "analysis": string}}
+
+"confirmed" = the excerpts directly support the claim as stated.
+"contradicted" = the excerpts directly conflict with the claim.
+"partially confirmed" = the excerpts support part of the claim but not all of it, or the claim
+omits important context the excerpts provide.
+"not addressed" = the excerpts don't say enough to judge the claim either way.
+
+Keep analysis to 1-3 sentences, citing specifically what the excerpts say.
+"""
+
 WEB_SEARCH_RETRY_DELAYS = (3.0, 8.0)
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 
@@ -92,6 +117,24 @@ def _format_context_block(prior_context: list[str]) -> str:
     return (
         "\nThis claim may continue or build on earlier claims made in the same video. "
         f"For context, here is what earlier claims in this video established:\n{joined}\n"
+    )
+
+
+def _format_gov_context_block(gov_hits: list[dict]) -> str:
+    """Formats chunks retrieved from the indexed Indian-government source
+    corpus (app/rag/gov_store.py, populated by scripts/ingest_gov_sources.py)
+    into a prompt section. These are real excerpts from documents we
+    actually ingested, not the model's own unverifiable recollection --
+    weight them as authoritative primary evidence when they address the
+    claim, and cite their exact URLs."""
+    if not gov_hits:
+        return ""
+    joined = "\n".join(f"- [{h['title']}] ({h['url']}): {h['text']}" for h in gov_hits)
+    return (
+        "\nThe following excerpts were retrieved from indexed official Indian government "
+        "sources and are known to be authentic -- treat them as authoritative primary evidence "
+        f"when they address the claim, and cite their exact URLs in `sources` if you rely on "
+        f"them:\n{joined}\n"
     )
 
 
@@ -117,6 +160,22 @@ class ClaimVerification:
     analysis: str
     sources: list[str]
     grounded: bool  # True if checked via live web search, False if fallen back to a plain model
+    # URLs actually retrieved from the indexed Indian-government source
+    # corpus (app/rag/gov_store.py) for this claim -- unlike `sources` above
+    # (self-reported by the verification model), these are deterministic:
+    # they only appear here if our own retrieval found and fed them into the
+    # prompt, so they're a reliable "checked against an official source"
+    # signal rather than something the model merely claims to have found.
+    official_sources: list[str] = field(default_factory=list)
+    # An independent, separate judgment scoped ONLY to official_sources above
+    # -- "confirmed" | "contradicted" | "partially confirmed" | "not addressed"
+    # (excerpts were found but don't settle it) | "no source found" (nothing
+    # in the indexed gov corpus matched at all). Kept apart from `verdict`
+    # above (which may draw on general web search or training knowledge) so
+    # a claim's standing against official government sources is visible on
+    # its own, not blended into the overall verdict.
+    official_verdict: str = "no source found"
+    official_analysis: str = ""
     start_seconds: float = 0.0
     end_seconds: float = 0.0
 
@@ -154,7 +213,7 @@ def _parse_verification(content: str) -> tuple[str, str, list[str]]:
 
 
 def _verify_via_web_search(
-    claim: ExtractedClaim, prior_context: list[str],
+    claim: ExtractedClaim, prior_context: list[str], gov_context_block: str = "",
 ) -> tuple[str, str, list[str]] | None:
     """Uses OpenAI's web-search-enabled Responses API for real, grounded
     fact-checking. Retries a couple of times on transient errors before
@@ -167,7 +226,9 @@ def _verify_via_web_search(
         return None
 
     prompt = VERIFICATION_PROMPT_TEMPLATE.format(
-        claim=claim.claim, quote=claim.quote, context_block=_format_context_block(prior_context),
+        claim=claim.claim, quote=claim.quote,
+        context_block=_format_context_block(prior_context),
+        gov_context_block=gov_context_block,
     )
     for attempt, delay in enumerate((0.0, *WEB_SEARCH_RETRY_DELAYS)):
         if delay:
@@ -186,10 +247,12 @@ def _verify_via_web_search(
     return None
 
 
-def _verify_via_plain_model(claim: ExtractedClaim, prior_context: list[str]) -> tuple[str, str, list[str]]:
+def _verify_via_plain_model(
+    claim: ExtractedClaim, prior_context: list[str], gov_context_block: str = "",
+) -> tuple[str, str, list[str]]:
     client = next_client()
     user_content = (
-        f"{_format_context_block(prior_context)}\n"
+        f"{gov_context_block}{_format_context_block(prior_context)}\n"
         f'Claim to verify: "{claim.claim}"\n\nExact quote from the source video: "{claim.quote}"'
     )
     response = _call_groq_with_retry(lambda: client.chat.completions.create(
@@ -212,24 +275,69 @@ def _verify_via_plain_model(claim: ExtractedClaim, prior_context: list[str]) -> 
         )
 
 
-def verify_claim(claim: ExtractedClaim, prior_context: list[str] | None = None) -> ClaimVerification:
+def _verify_against_gov_sources(claim: ExtractedClaim, gov_hits: list[dict]) -> tuple[str, str]:
+    """Independent second judgment scoped ONLY to the retrieved
+    Indian-government source excerpts (app/rag/gov_store.py) -- a separate
+    Groq call from the main verify_claim() reasoning, so a claim's standing
+    against official sources is its own explicit result rather than folded
+    into the general verdict. Skipped entirely (no LLM call) when nothing
+    was retrieved, since there's nothing to judge."""
+    if not gov_hits:
+        return "no source found", "No matching excerpts were found in the indexed Indian government source corpus for this claim."
+
+    excerpts = "\n".join(f"- [{h['title']}] ({h['url']}): {h['text']}" for h in gov_hits)
+    prompt = GOV_VERIFICATION_PROMPT_TEMPLATE.format(claim=claim.claim, excerpts=excerpts)
+    client = next_client()
+    try:
+        response = _call_groq_with_retry(lambda: client.chat.completions.create(
+            model=CLAIM_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            temperature=0.1,
+        ))
+        data = json.loads(_FENCE_RE.sub("", response.choices[0].message.content.strip()))
+        return data.get("verdict", "not addressed"), data.get("analysis", "")
+    except Exception:
+        logger.exception("Government-source verdict check failed for claim: %r", claim.claim)
+        return "not addressed", "The government-source verdict check returned a malformed response."
+
+
+def verify_claim(
+    claim: ExtractedClaim,
+    prior_context: list[str] | None = None,
+    gov_hits: list[dict] | None = None,
+) -> ClaimVerification:
     """prior_context is text retrieved from earlier claims in the same video
     (app/rag/claim_store.py::search_prior_context) -- used when a claim is a
     continuation of one made earlier, so it's verified with the right
     context instead of in isolation. Empty/omitted for a video's first claim
-    or when the retrieval pipeline isn't configured."""
+    or when the retrieval pipeline isn't configured.
+
+    gov_hits is retrieved from the indexed Indian-government source corpus
+    (app/rag/gov_store.py::search_gov_sources) -- real excerpts fed into the
+    prompt as grounding, and reported back verbatim as official_sources
+    below (not just parsed out of the model's own claims about what it
+    found). Empty/omitted when nothing in that corpus matched, or when the
+    corpus hasn't been ingested / Qdrant isn't configured."""
     prior_context = prior_context or []
-    grounded_result = _verify_via_web_search(claim, prior_context)
+    gov_hits = gov_hits or []
+    gov_context_block = _format_gov_context_block(gov_hits)
+    official_sources = [h["url"] for h in gov_hits if h.get("url")]
+    official_verdict, official_analysis = _verify_against_gov_sources(claim, gov_hits)
+
+    grounded_result = _verify_via_web_search(claim, prior_context, gov_context_block)
     if grounded_result is not None:
         verdict, analysis, sources = grounded_result
         return ClaimVerification(
             quote=claim.quote, timestamp=claim.timestamp, claim=claim.claim,
             verdict=verdict, analysis=analysis, sources=sources, grounded=True,
+            official_sources=official_sources,
+            official_verdict=official_verdict, official_analysis=official_analysis,
             start_seconds=claim.start_seconds, end_seconds=claim.end_seconds,
         )
 
     logger.warning("Falling back to non-web-search verification for claim: %r", claim.claim)
-    verdict, analysis, sources = _verify_via_plain_model(claim, prior_context)
+    verdict, analysis, sources = _verify_via_plain_model(claim, prior_context, gov_context_block)
     analysis = (
         "[Not web-verified -- the live fact-check search was unavailable, this reflects only "
         f"the model's training knowledge.] {analysis}"
@@ -237,6 +345,8 @@ def verify_claim(claim: ExtractedClaim, prior_context: list[str] | None = None) 
     return ClaimVerification(
         quote=claim.quote, timestamp=claim.timestamp, claim=claim.claim,
         verdict=verdict, analysis=analysis, sources=sources, grounded=False,
+        official_sources=official_sources,
+        official_verdict=official_verdict, official_analysis=official_analysis,
         start_seconds=claim.start_seconds, end_seconds=claim.end_seconds,
     )
 

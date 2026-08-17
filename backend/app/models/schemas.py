@@ -86,6 +86,9 @@ class ClaimVerificationResponse(BaseModel):
     analysis: str
     sources: list[str]
     grounded: bool
+    official_sources: list[str] = []
+    official_verdict: str = "no source found"
+    official_analysis: str = ""
     start_seconds: float = 0.0
     end_seconds: float = 0.0
 

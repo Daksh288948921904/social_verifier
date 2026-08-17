@@ -17,6 +17,22 @@ VERDICT_COLOR = {
     "partially true": "#8a6d00", "unverifiable": "#555555",
 }
 
+# A second, independent verdict scoped only to the indexed Indian-government
+# source corpus (see app/verifier/claims.py::_verify_against_gov_sources) --
+# rendered as its own line, distinct from the main verdict bar above, since
+# it's a separate judgment that may disagree with or say less than the
+# general fact-check.
+GOV_VERDICT_LABEL = {
+    "confirmed": "CONFIRMED", "contradicted": "CONTRADICTED",
+    "partially confirmed": "PARTIALLY CONFIRMED", "not addressed": "NOT ADDRESSED",
+    "no source found": "NO OFFICIAL SOURCE FOUND",
+}
+GOV_VERDICT_COLOR = {
+    "confirmed": "#0a5c1f", "contradicted": "#b3001e",
+    "partially confirmed": "#8a6d00", "not addressed": "#555555",
+    "no source found": "#888888",
+}
+
 _styles = getSampleStyleSheet()
 _TITLE_STYLE = ParagraphStyle("ReportTitle", parent=_styles["Title"], fontSize=20, spaceAfter=4)
 _URL_STYLE = ParagraphStyle(
@@ -43,6 +59,13 @@ _SOURCE_STYLE = ParagraphStyle(
     "Source", parent=_styles["BodyText"], fontSize=9, leading=12.5,
     textColor=colors.HexColor("#0a4a8f"), spaceBefore=6,
 )
+_OFFICIAL_SOURCE_STYLE = ParagraphStyle(
+    "OfficialSource", parent=_styles["BodyText"], fontSize=9, leading=12.5,
+    fontName="Helvetica-Bold", textColor=colors.HexColor("#0a5c1f"), spaceBefore=3,
+)
+_GOV_VERDICT_STYLE = ParagraphStyle(
+    "GovVerdict", parent=_styles["BodyText"], fontSize=9.5, leading=13, spaceBefore=6,
+)
 
 
 def _verdict_bar(verdict: str, index: int) -> Table:
@@ -59,6 +82,15 @@ def _verdict_bar(verdict: str, index: int) -> Table:
         ("LEFTPADDING", (0, 0), (-1, -1), 8),
     ]))
     return bar
+
+
+def _gov_verdict_line(official_verdict: str, official_analysis: str) -> Paragraph:
+    label = GOV_VERDICT_LABEL.get(official_verdict, esc(official_verdict.upper()))
+    color = GOV_VERDICT_COLOR.get(official_verdict, "#555555")
+    text = f'<font color="{color}"><b>Govt. Source Verdict: {esc(label)}</b></font>'
+    if official_analysis:
+        text += f" — {esc(official_analysis)}"
+    return Paragraph(text, _GOV_VERDICT_STYLE)
 
 
 def render_pdf(url: str, claims: list[dict], conclusion: str) -> bytes:
@@ -101,6 +133,17 @@ def render_pdf(url: str, claims: list[dict], conclusion: str) -> bytes:
         if claim.get("sources"):
             sources = "; ".join(esc(s) for s in claim["sources"])
             flow.append(Paragraph(f"Sources: {sources}", _SOURCE_STYLE))
+
+        if claim.get("official_sources"):
+            official = "; ".join(esc(s) for s in claim["official_sources"])
+            flow.append(Paragraph(
+                f"Verified against official Indian government sources: {official}",
+                _OFFICIAL_SOURCE_STYLE,
+            ))
+
+        flow.append(_gov_verdict_line(
+            claim.get("official_verdict", "no source found"), claim.get("official_analysis", ""),
+        ))
 
         flow.append(Spacer(1, 16))
 

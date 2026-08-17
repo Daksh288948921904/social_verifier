@@ -76,9 +76,14 @@ export interface ClaimVerification {
   analysis: string
   sources: string[]
   grounded: boolean
+  official_sources: string[]
+  official_verdict: GovVerdict
+  official_analysis: string
   start_seconds: number
   end_seconds: number
 }
+
+export type GovVerdict = 'confirmed' | 'contradicted' | 'partially confirmed' | 'not addressed' | 'no source found'
 
 export type ReelCheckStatus =
   | 'queued'

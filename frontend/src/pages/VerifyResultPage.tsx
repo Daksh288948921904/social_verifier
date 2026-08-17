@@ -3,7 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { apiUrl } from '../api/base'
 import { api } from '../api/client'
-import type { ClaimVerification, Verdict } from '../api/types'
+import type { ClaimVerification, GovVerdict, Verdict } from '../api/types'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Button } from '../components/ui/Button'
 import { Skeleton } from '../components/ui/Skeleton'
@@ -35,6 +35,18 @@ const VERDICT_META: Record<
 }
 
 const VERDICT_ORDER: Verdict[] = ['true', 'false', 'misleading', 'partially true', 'unverifiable']
+
+// A second, independent verdict scoped only to the indexed Indian-government
+// source corpus -- kept visually distinct from VERDICT_META above (blue
+// instead of the main verdict's red/green/orange) since it's a separate
+// judgment from a narrower evidence set, not a restatement of the main one.
+const GOV_VERDICT_META: Record<GovVerdict, { label: string; icon: string; text: string; border: string }> = {
+  confirmed: { label: 'Confirmed', icon: '✓', text: 'text-sky-400', border: 'border-sky-800' },
+  contradicted: { label: 'Contradicted', icon: '✗', text: 'text-red-400', border: 'border-red-800' },
+  'partially confirmed': { label: 'Partially Confirmed', icon: '◐', text: 'text-sky-400', border: 'border-sky-800' },
+  'not addressed': { label: 'Not Addressed', icon: '?', text: 'text-neutral-400', border: 'border-neutral-700' },
+  'no source found': { label: 'No Official Source Found', icon: '∅', text: 'text-neutral-500', border: 'border-neutral-800' },
+}
 
 const STATUS_LABEL: Record<string, string> = {
   downloading: 'Downloading clip…',
@@ -214,6 +226,55 @@ function ClaimCard({ claim, index, checkId }: { claim: ClaimVerification; index:
               </span>
             ),
           )}
+        </div>
+      )}
+
+      <GovVerdictBox claim={claim} />
+    </div>
+  )
+}
+
+// Rendered as its own self-contained box, not folded into the general
+// analysis/sources above -- this is a separate, independent judgment (see
+// app/verifier/claims.py::_verify_against_gov_sources) scoped only to the
+// indexed Indian-government source corpus, so it gets its own verdict badge
+// and evidence rather than being merged into the main fact-check verdict.
+function GovVerdictBox({ claim }: { claim: ClaimVerification }) {
+  const govVerdict = GOV_VERDICT_META[claim.official_verdict] ?? GOV_VERDICT_META['no source found']
+  const officialSources = claim.official_sources ?? []
+
+  return (
+    <div className="mt-4 border-2 border-sky-900/60 bg-sky-950/10 p-3.5">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <span className="font-display text-sm uppercase tracking-widest text-sky-500">
+          🏛 Govt. Source Verdict
+        </span>
+        <span
+          className={`inline-flex items-center gap-1.5 border-2 bg-black px-2.5 py-0.5 font-mono text-xs font-bold ${govVerdict.border} ${govVerdict.text}`}
+        >
+          <span>{govVerdict.icon}</span>
+          {govVerdict.label}
+        </span>
+      </div>
+
+      {claim.official_analysis && (
+        <p className="mb-2 text-sm leading-relaxed text-neutral-300">{claim.official_analysis}</p>
+      )}
+
+      {officialSources.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          {officialSources.map((src, i) => (
+            <a
+              key={i}
+              href={src}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 border border-sky-800 bg-black px-2.5 py-1 font-mono text-xs text-sky-400 transition hover:border-sky-500 hover:text-sky-300"
+            >
+              <span className="text-sky-600">🔗</span>
+              {domainOf(src)}
+            </a>
+          ))}
         </div>
       )}
     </div>

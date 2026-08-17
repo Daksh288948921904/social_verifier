@@ -25,6 +25,20 @@ class Settings(BaseSettings):
     qdrant_api_key: str = ""
     qdrant_collection: str = "claim_chunks"
 
+    # Separate Qdrant collection holding ingested Indian-government source
+    # documents (see app/rag/gov_store.py, populated by
+    # scripts/ingest_gov_sources.py) that claim verification retrieves from
+    # for grounding -- distinct from qdrant_collection above, which only
+    # holds per-video claim chunks for intra-video context.
+    qdrant_gov_collection: str = "gov_sources"
+
+    # Free-signup API key for data.gov.in / OGD Platform India
+    # (https://data.gov.in/user/register, then https://data.gov.in/apis),
+    # used by scripts/ingest_gov_sources.py to pull real government datasets
+    # into qdrant_gov_collection. Left unset, data.gov.in ingestion is
+    # skipped -- it never blocks the app.
+    data_gov_in_api_key: str = ""
+
     data_dir: Path = Path(__file__).resolve().parents[2] / "data"
 
     # If set, structured data (sessions, fact-checks, timelines, etc.) is
@@ -39,7 +53,12 @@ class Settings(BaseSettings):
     chunk_seconds: int = 10
     batch_window_seconds: int = 600
     whisper_model: str = "whisper-large-v3-turbo"
-    segmentation_model: str = "llama-3.3-70b-versatile"
+    # llama-3.3-70b-versatile was retired from Groq's hosted lineup (404
+    # model_not_found on this account as of 2026-08) -- gpt-oss-120b is
+    # Groq's current flagship general-purpose hosted model and, like the
+    # model it replaces, supports response_format={"type": "json_object"},
+    # which every caller of this setting relies on.
+    segmentation_model: str = "openai/gpt-oss-120b"
     verification_model: str = "gpt-4.1"
 
     ffmpeg_bin: str = "ffmpeg"

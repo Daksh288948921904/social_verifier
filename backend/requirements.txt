@@ -3,6 +3,7 @@ uvicorn[standard]
 groq
 openai
 qdrant-client
+httpx
 yt-dlp
 setuptools<81
 webrtcvad

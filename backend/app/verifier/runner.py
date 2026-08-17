@@ -6,7 +6,7 @@ from pathlib import Path
 
 from app.core import db
 from app.core.config import settings
-from app.rag import claim_store
+from app.rag import claim_store, gov_store
 from app.verifier.claims import (
     ClaimVerification,
     extract_claims,
@@ -31,6 +31,22 @@ def _prior_context(check_id: str, claim_index: int, query_text: str) -> list[str
         return claim_store.search_prior_context(check_id, claim_index, query_text)
     except Exception:
         logger.exception("Prior-claim context retrieval failed for %s claim %d", check_id, claim_index)
+        return []
+
+
+def _gov_context(query_text: str) -> list[dict]:
+    """Best-effort retrieval from the indexed Indian-government source
+    corpus (see app/rag/gov_store.py, populated by
+    scripts/ingest_gov_sources.py) -- claim verification must keep working
+    even if Qdrant isn't configured, the gov corpus hasn't been ingested
+    yet, or is briefly unreachable; it just loses that grounding in that
+    case, mirroring _prior_context above."""
+    if not settings.qdrant_url:
+        return []
+    try:
+        return gov_store.search_gov_sources(query_text)
+    except Exception:
+        logger.exception("Gov-source retrieval failed for query %r", query_text)
         return []
 
 
@@ -88,7 +104,8 @@ async def run_reel_check(check_id: str, url: str) -> None:
                 prior_context = await asyncio.to_thread(
                     _prior_context, check_id, i, f"{claim.claim} {claim.quote}",
                 )
-                verification = await asyncio.to_thread(verify_claim, claim, prior_context)
+                gov_hits = await asyncio.to_thread(_gov_context, f"{claim.claim} {claim.quote}")
+                verification = await asyncio.to_thread(verify_claim, claim, prior_context, gov_hits)
                 verifications.append(verification)
                 verification_dicts.append(verify_claim_to_dict(verification))
                 await asyncio.to_thread(_index_claim, check_id, i, verification)

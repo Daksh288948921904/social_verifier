@@ -1,10 +1,9 @@
-import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 
 from app.core.config import settings
 from app.core.proc import run_checked
+from app.core.ytdlp_cookies import cookies_args
 
 
 class DownloadError(RuntimeError):
@@ -37,24 +36,9 @@ def download_clip(url: str, dest_dir: Path) -> Path:
         "--merge-output-format", "mp4",
     ]
 
-    with tempfile.TemporaryDirectory(prefix="ytdlp_cookies_") as cookies_tmp:
-        if settings.ytdlp_cookies_file:
-            # yt-dlp doesn't just read --cookies, it writes back to the same
-            # file at the end (to persist any refreshed tokens from the
-            # session) -- fails outright if that path is read-only, which is
-            # exactly how Render mounts Secret Files. Copy it into a scratch
-            # dir first (cleaned up right after this call, not left sitting
-            # in the check's persistent data directory -- it's a live
-            # session credential) and point yt-dlp at the copy.
-            writable_cookies = Path(cookies_tmp) / "cookies.txt"
-            shutil.copy(settings.ytdlp_cookies_file, writable_cookies)
-            # shutil.copy preserves the source's permission bits too -- a
-            # Render Secret File is read-only, and that mode would carry
-            # straight over onto this copy otherwise, defeating the point.
-            writable_cookies.chmod(0o600)
-            cmd += ["--cookies", str(writable_cookies)]
+    with cookies_args() as cookie_args:
+        cmd += cookie_args
         cmd += ["-o", output_template, "--no-playlist", url]
-
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
     if result.returncode != 0:
         raise DownloadError(f"yt-dlp failed to download {url}: {result.stderr.strip()}")

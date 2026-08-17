@@ -2,6 +2,7 @@ import subprocess
 from abc import ABC, abstractmethod
 
 from app.core.config import settings
+from app.core.ytdlp_cookies import cookies_args
 
 
 class StreamResolutionError(RuntimeError):
@@ -60,27 +61,23 @@ class YouTubeLiveSource(StreamSource):
         (clean stop + resume-seek) -- worst case without it is the old
         restart-forever-from-zero behavior, not a crash."""
         try:
-            result = subprocess.run(
-                [settings.ytdlp_bin, "--no-warnings", "--print", "duration", self.watch_url],
-                capture_output=True, text=True, timeout=30,
-            )
+            with cookies_args() as cookie_args:
+                result = subprocess.run(
+                    [settings.ytdlp_bin, "--no-warnings", *cookie_args, "--print", "duration", self.watch_url],
+                    capture_output=True, text=True, timeout=30,
+                )
             return float(result.stdout.strip())
         except (subprocess.SubprocessError, OSError, ValueError):
             return None
 
     def get_input_url(self) -> str:
-        result = subprocess.run(
-            [
-                settings.ytdlp_bin,
-                "-g",
-                "-f",
-                self.format_selector,
-                self.watch_url,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+        with cookies_args() as cookie_args:
+            result = subprocess.run(
+                [settings.ytdlp_bin, "-g", "-f", self.format_selector, *cookie_args, self.watch_url],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
         if result.returncode != 0:
             raise StreamResolutionError(
                 f"yt-dlp failed to resolve {self.watch_url}: {result.stderr.strip()}"

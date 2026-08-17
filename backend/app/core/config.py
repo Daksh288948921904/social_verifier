@@ -66,14 +66,22 @@ class Settings(BaseSettings):
     ytdlp_bin: str = "yt-dlp"
 
     # Path to a Netscape-format cookies.txt exported from a real logged-in
-    # browser session. Some platforms (Instagram especially) serve a more
-    # restricted format list -- sometimes video with no audio track at all
-    # -- to requests that look unauthenticated/automated, particularly from
-    # datacenter IPs; a logged-in session is generally treated less
-    # suspiciously. Left unset, yt-dlp runs unauthenticated as before. On
-    # Render, upload the file as a Secret File and point this at
-    # /etc/secrets/<filename>.
+    # browser session, used by the reel-check downloader (app/verifier/download.py).
+    # Some platforms (Instagram especially) serve a more restricted format
+    # list -- sometimes video with no audio track at all -- to requests that
+    # look unauthenticated/automated, particularly from datacenter IPs; a
+    # logged-in session is generally treated less suspiciously. Left unset,
+    # yt-dlp runs unauthenticated as before. On Render, upload the file as a
+    # Secret File and point this at /etc/secrets/<filename>.
     ytdlp_cookies_file: str = ""
+
+    # Same idea as ytdlp_cookies_file above, but for YouTube specifically --
+    # used by the live-capture source resolver (app/ingest/source_resolver.py)
+    # to repeatedly re-resolve a YouTube Live URL for a session's whole
+    # duration. Kept separate because YouTube and Instagram need different
+    # logged-in accounts' cookies; sharing one file would send the wrong
+    # platform's cookies to the other.
+    ytdlp_youtube_cookies_file: str = ""
 
     # Comma-separated list of allowed frontend origins for CORS, e.g.
     # "https://live-cutter.onrender.com,https://live-cutter.vercel.app".

@@ -61,7 +61,7 @@ class YouTubeLiveSource(StreamSource):
         (clean stop + resume-seek) -- worst case without it is the old
         restart-forever-from-zero behavior, not a crash."""
         try:
-            with cookies_args() as cookie_args:
+            with cookies_args(settings.ytdlp_youtube_cookies_file) as cookie_args:
                 result = subprocess.run(
                     [settings.ytdlp_bin, "--no-warnings", *cookie_args, "--print", "duration", self.watch_url],
                     capture_output=True, text=True, timeout=30,
@@ -71,7 +71,7 @@ class YouTubeLiveSource(StreamSource):
             return None
 
     def get_input_url(self) -> str:
-        with cookies_args() as cookie_args:
+        with cookies_args(settings.ytdlp_youtube_cookies_file) as cookie_args:
             result = subprocess.run(
                 [settings.ytdlp_bin, "-g", "-f", self.format_selector, *cookie_args, self.watch_url],
                 capture_output=True,

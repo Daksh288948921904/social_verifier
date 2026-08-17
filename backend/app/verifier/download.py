@@ -36,7 +36,7 @@ def download_clip(url: str, dest_dir: Path) -> Path:
         "--merge-output-format", "mp4",
     ]
 
-    with cookies_args() as cookie_args:
+    with cookies_args(settings.ytdlp_cookies_file) as cookie_args:
         cmd += cookie_args
         cmd += ["-o", output_template, "--no-playlist", url]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)

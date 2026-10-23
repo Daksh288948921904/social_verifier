@@ -142,6 +142,111 @@ CREATE TABLE IF NOT EXISTS debunk_scripts (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     completed_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS searches (
+    id TEXT PRIMARY KEY,
+    query TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS search_results (
+    id TEXT PRIMARY KEY,
+    search_id TEXT NOT NULL REFERENCES searches(id),
+    source TEXT NOT NULL,
+    title TEXT NOT NULL,
+    url TEXT NOT NULL,
+    thumbnail_url TEXT,
+    description TEXT NOT NULL DEFAULT '',
+    published_at TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    video_path TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS footage_projects (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    script_text TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'ready',
+    error_message TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS footage_segments (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES footage_projects(id),
+    position INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    visual_needs TEXT NOT NULL DEFAULT '',
+    script_excerpt TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS footage_batches (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES footage_projects(id),
+    status TEXT NOT NULL DEFAULT 'running',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS footage_keywords (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES footage_projects(id),
+    segment_id TEXT NOT NULL REFERENCES footage_segments(id),
+    position INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    rationale TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'idle',
+    progress TEXT NOT NULL DEFAULT '',
+    error_message TEXT,
+    batch_id TEXT,
+    queued_at TEXT,
+    completed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS footage_videos (
+    id TEXT PRIMARY KEY,
+    keyword_id TEXT NOT NULL REFERENCES footage_keywords(id),
+    position INTEGER NOT NULL,
+    video_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    channel TEXT NOT NULL DEFAULT '',
+    thumbnail_url TEXT,
+    published_at TEXT,
+    duration_seconds REAL,
+    has_transcript INTEGER NOT NULL DEFAULT 0,
+    relevance INTEGER NOT NULL DEFAULT 0,
+    verdict TEXT NOT NULL DEFAULT '',
+    moments_json TEXT NOT NULL DEFAULT '[]'
+);
+
+CREATE TABLE IF NOT EXISTS footage_clips (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES footage_projects(id),
+    video_id TEXT NOT NULL,
+    video_title TEXT NOT NULL DEFAULT '',
+    filename TEXT NOT NULL,
+    label TEXT NOT NULL DEFAULT '',
+    start_seconds REAL NOT NULL,
+    end_seconds REAL NOT NULL,
+    status TEXT NOT NULL DEFAULT 'downloading',
+    file_path TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS footage_transcripts (
+    video_id TEXT PRIMARY KEY,
+    duration_seconds REAL,
+    channel TEXT NOT NULL DEFAULT '',
+    chapters_json TEXT NOT NULL DEFAULT '[]',
+    lines_json TEXT NOT NULL DEFAULT '[]',
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 

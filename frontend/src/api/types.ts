@@ -186,3 +186,133 @@ export interface DebunkScript {
   created_at: string
   completed_at: string | null
 }
+
+export type SearchResultSource = 'youtube' | 'web' | 'instagram'
+export type SearchResultStatus = 'pending' | 'fetching' | 'done' | 'error'
+
+export interface SearchResult {
+  id: string
+  search_id: string
+  source: SearchResultSource
+  title: string
+  url: string
+  thumbnail_url: string | null
+  description: string
+  published_at: string | null
+  status: SearchResultStatus
+  video_path: string | null
+  error_message: string | null
+}
+
+export interface SearchResponse {
+  search_id: string
+  query: string
+  results: SearchResult[]
+  errors: Record<string, string>
+}
+
+export type FootageKeywordStatus = 'idle' | 'queued' | 'searching' | 'analyzing' | 'done' | 'error'
+
+export interface FootageMoment {
+  start: number
+  end: number
+  label: string
+  description: string
+  fit: string
+  score: number
+  estimated?: boolean
+}
+
+export interface FootageVideo {
+  id: string
+  video_id: string
+  title: string
+  channel: string
+  thumbnail_url: string | null
+  published_at: string | null
+  duration_seconds: number | null
+  has_transcript: boolean
+  analyzed: boolean
+  relevance: number | null
+  verdict: string
+  moments: FootageMoment[]
+}
+
+export interface FootageKeyword {
+  id: string
+  position: number
+  text: string
+  rationale: string
+  status: FootageKeywordStatus
+  progress: string
+  error_message: string | null
+  batch_id: string | null
+  completed_at: string | null
+  videos: FootageVideo[]
+}
+
+export interface FootageSegment {
+  id: string
+  position: number
+  title: string
+  summary: string
+  visual_needs: string
+  script_excerpt: string
+  keywords: FootageKeyword[]
+}
+
+export interface FootageBatch {
+  id: string
+  status: 'running' | 'done'
+  created_at: string
+  completed_at: string | null
+  total: number
+  finished: number
+}
+
+export interface FootageProject {
+  id: string
+  title: string
+  mode: 'script' | 'keywords'
+  status: 'analyzing' | 'ready' | 'error'
+  error_message: string | null
+  created_at: string
+  segments: FootageSegment[]
+  batches: FootageBatch[]
+  keywords_per_wave: number
+  clips: FootageClip[]
+}
+
+export interface FootageProjectSummary {
+  id: string
+  title: string
+  mode: 'script' | 'keywords'
+  status: 'analyzing' | 'ready' | 'error'
+  created_at: string
+  segment_count: number
+  keyword_count: number
+  done_keyword_count: number
+  video_count: number
+}
+
+export interface FootageClip {
+  id: string
+  video_id: string
+  video_title: string
+  filename: string
+  label: string
+  start_seconds: number
+  end_seconds: number
+  status: 'downloading' | 'done' | 'error'
+  error_message: string | null
+  created_at: string
+}
+
+export interface FootageClipRequest {
+  video_id: string
+  video_title: string
+  segment_position: number
+  label: string
+  start: number
+  end: number
+}

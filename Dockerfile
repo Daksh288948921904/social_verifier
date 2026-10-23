@@ -17,6 +17,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg build-essential fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
+# yt-dlp needs an external JavaScript runtime to solve YouTube's player
+# challenges; without one YouTube hands back stream URLs that 403 on download.
+COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
+
 WORKDIR /app/backend
 
 COPY backend/requirements.txt .

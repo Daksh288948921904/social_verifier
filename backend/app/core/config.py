@@ -39,6 +39,21 @@ class Settings(BaseSettings):
     # skipped -- it never blocks the app.
     data_gov_in_api_key: str = ""
 
+    # Powers the Search tab (app/search/*): keyword search across YouTube,
+    # general web/news, and Instagram Reels (the latter two both via Google
+    # Custom Search -- Instagram has no public search API).
+    youtube_api_key: str = ""
+    google_cse_api_key: str = ""
+    google_cse_cx: str = ""
+    max_results_per_source: int = 10
+
+    # Footage tab (app/footage/*): how many YouTube videos to pull per
+    # keyword, and how many keywords run side by side in one wave of a
+    # batch. Kept small by default -- every video costs one LLM call to
+    # find its matching moments, and those share the Groq rate limits.
+    footage_videos_per_keyword: int = 5
+    footage_keywords_per_wave: int = 3
+
     data_dir: Path = Path(__file__).resolve().parents[2] / "data"
 
     # If set, structured data (sessions, fact-checks, timelines, etc.) is

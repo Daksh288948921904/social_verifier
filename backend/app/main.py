@@ -7,10 +7,11 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api import auth, clips, editor, sessions, verify, ws
+from app.api import auth, clips, editor, footage, search, search_results, sessions, verify, ws
 from app.core import db
 from app.core.auth import SESSION_TOKEN
 from app.core.config import settings
+from app.footage.runner import recover_interrupted as recover_footage_jobs
 from app.rag import claim_store
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -50,11 +51,15 @@ app.include_router(clips.router)
 app.include_router(verify.router)
 app.include_router(editor.router)
 app.include_router(ws.router)
+app.include_router(search.router)
+app.include_router(search_results.router)
+app.include_router(footage.router)
 
 
 @app.on_event("startup")
 def startup():
     db.get_conn()  # initializes schema
+    recover_footage_jobs()
 
     missing = [
         name for name, bin_path in (
@@ -91,6 +96,16 @@ def startup():
         logger.warning(
             "QDRANT_URL is not set -- reel claim verification will run without cross-claim "
             "context (continuation claims won't see earlier claims in the same video)"
+        )
+    if not settings.youtube_api_key:
+        logger.warning(
+            "YOUTUBE_API_KEY is not set -- the Search tab's YouTube results will fail until "
+            "configured in .env"
+        )
+    if not settings.google_cse_api_key or not settings.google_cse_cx:
+        logger.warning(
+            "GOOGLE_CSE_API_KEY/GOOGLE_CSE_CX is not set -- the Search tab's web and Instagram "
+            "results will fail until configured in .env"
         )
 
 

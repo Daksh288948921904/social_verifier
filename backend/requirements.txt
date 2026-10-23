@@ -4,7 +4,7 @@ groq
 openai
 qdrant-client
 httpx
-yt-dlp
+yt-dlp[default]>=2026.8.19
 setuptools<81
 webrtcvad
 pydantic-settings

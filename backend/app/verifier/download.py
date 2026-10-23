@@ -1,5 +1,6 @@
 import subprocess
 from pathlib import Path
+from urllib.parse import urlparse
 
 from app.core.config import settings
 from app.core.proc import run_checked
@@ -36,7 +37,7 @@ def download_clip(url: str, dest_dir: Path) -> Path:
         "--merge-output-format", "mp4",
     ]
 
-    with cookies_args(settings.ytdlp_cookies_file) as cookie_args:
+    with cookies_args(_cookies_file_for(url)) as cookie_args:
         cmd += cookie_args
         cmd += ["-o", output_template, "--no-playlist", url]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
@@ -64,6 +65,15 @@ def download_clip(url: str, dest_dir: Path) -> Path:
             "nothing to fact-check without audio to transcribe."
         )
     return video_path
+
+
+def _cookies_file_for(url: str) -> str:
+    """YouTube and Instagram need different logged-in accounts' cookies, so
+    a YouTube URL gets the YouTube cookies file rather than the Instagram one."""
+    host = (urlparse(url).hostname or "").lower()
+    if host == "youtu.be" or host == "youtube.com" or host.endswith(".youtube.com"):
+        return settings.ytdlp_youtube_cookies_file
+    return settings.ytdlp_cookies_file
 
 
 def _has_audio_stream(video_path: Path) -> bool:

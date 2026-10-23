@@ -4,6 +4,9 @@ import { Marquee } from './Marquee'
 export function NavBar() {
   const location = useLocation()
   const isVerify = location.pathname.startsWith('/verify')
+  const isSearch = location.pathname.startsWith('/search')
+  const isFootage = location.pathname.startsWith('/footage')
+  const isSessions = !isVerify && !isSearch && !isFootage
 
   return (
     <div className="-mx-4 mb-10 animate-fade-in sm:mx-0">
@@ -21,7 +24,7 @@ export function NavBar() {
           <Link
             to="/"
             className={`px-4 py-1.5 transition ${
-              !isVerify ? 'bg-brand-500 text-black' : 'text-neutral-400 hover:text-neutral-100'
+              isSessions ? 'bg-brand-500 text-black' : 'text-neutral-400 hover:text-neutral-100'
             }`}
           >
             Sessions
@@ -33,6 +36,22 @@ export function NavBar() {
             }`}
           >
             Verifier
+          </Link>
+          <Link
+            to="/search"
+            className={`border-l-2 border-neutral-700 px-4 py-1.5 transition ${
+              isSearch ? 'bg-brand-500 text-black' : 'text-neutral-400 hover:text-neutral-100'
+            }`}
+          >
+            Search
+          </Link>
+          <Link
+            to="/footage"
+            className={`border-l-2 border-neutral-700 px-4 py-1.5 transition ${
+              isFootage ? 'bg-brand-500 text-black' : 'text-neutral-400 hover:text-neutral-100'
+            }`}
+          >
+            Footage
           </Link>
         </div>
       </div>

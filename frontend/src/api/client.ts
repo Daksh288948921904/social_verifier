@@ -7,10 +7,15 @@ import type {
   DebunkScript,
   EditorExport,
   EditorUpload,
+  FootageClipRequest,
+  FootageProject,
+  FootageProjectSummary,
   FullArticle,
   InstagramKit,
   Newspaper,
   ReelCheck,
+  SearchResponse,
+  SearchResult,
   Session,
   Timeline,
   TimelineItem,
@@ -140,4 +145,55 @@ export const api = {
     request<DebunkScript>(`/api/verify/${checkId}/debunk-script`, { method: 'POST' }),
   getDebunkScript: (checkId: string, scriptId: string) =>
     request<DebunkScript>(`/api/verify/${checkId}/debunk-script/${scriptId}`),
+
+  search: (query: string) =>
+    request<SearchResponse>('/api/search', { method: 'POST', body: JSON.stringify({ query }) }),
+  fetchSearchResult: (id: string) =>
+    request<SearchResult>(`/api/search-results/${id}/fetch`, { method: 'POST' }),
+  getSearchResult: (id: string) => request<SearchResult>(`/api/search-results/${id}`),
+
+  listFootageProjects: () => request<FootageProjectSummary[]>('/api/footage/projects'),
+  getFootageProject: (id: string) => request<FootageProject>(`/api/footage/projects/${id}`),
+  createFootageProject: (body: { mode: 'script' | 'keywords'; title?: string; script?: string; keywords?: string[] }) =>
+    request<FootageProject>('/api/footage/projects', { method: 'POST', body: JSON.stringify(body) }),
+  createFootageProjectFromFile: async (file: File, title: string): Promise<FootageProject> => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('title', title)
+    // Not request(): see uploadEditorVideo -- FormData needs the browser to
+    // set its own multipart Content-Type.
+    const res = await fetch(apiUrl('/api/footage/projects/upload'), {
+      method: 'POST', body: form, headers: authHeader(), credentials: 'include',
+    })
+    if (res.status === 401) {
+      handleUnauthorized()
+      throw new Error('401 Unauthorized')
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.detail ?? `${res.status} ${res.statusText}`)
+    }
+    return res.json()
+  },
+  deleteFootageProject: (id: string) =>
+    request<{ ok: boolean }>(`/api/footage/projects/${id}`, { method: 'DELETE' }),
+  runFootageBatch: (projectId: string, keywordIds: string[]) =>
+    request<FootageProject>(`/api/footage/projects/${projectId}/batches`, {
+      method: 'POST',
+      body: JSON.stringify({ keyword_ids: keywordIds }),
+    }),
+  addFootageKeyword: (projectId: string, segmentId: string, text: string) =>
+    request<FootageProject>(`/api/footage/projects/${projectId}/segments/${segmentId}/keywords`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
+  deleteFootageKeyword: (keywordId: string) =>
+    request<FootageProject>(`/api/footage/keywords/${keywordId}`, { method: 'DELETE' }),
+  downloadFootageClips: (projectId: string, clips: FootageClipRequest[]) =>
+    request<FootageProject>(`/api/footage/projects/${projectId}/clips`, {
+      method: 'POST',
+      body: JSON.stringify({ clips }),
+    }),
+  deleteFootageClip: (clipId: string) =>
+    request<FootageProject>(`/api/footage/clips/${clipId}`, { method: 'DELETE' }),
 }

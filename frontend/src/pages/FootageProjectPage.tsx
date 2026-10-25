@@ -5,6 +5,7 @@ import { api } from '../api/client'
 import type {
   FootageClip,
   FootageClipRequest,
+  FootagePlanClip,
   FootageKeyword,
   FootageMoment,
   FootageProject,
@@ -20,8 +21,9 @@ import { SegmentSection } from '../components/footage/SegmentSection'
 import type { SegmentHandlers } from '../components/footage/SegmentSection'
 import { MomentPlayer } from '../components/footage/MomentPlayer'
 import type { PlayerTarget } from '../components/footage/MomentPlayer'
-import { clipKey, errorText, isRunning, keywordColor } from '../components/footage/format'
+import { clipKey, errorText, isRunning, keywordColor, youtubeAt } from '../components/footage/format'
 import { DownloadsPanel } from '../components/footage/DownloadsPanel'
+import { EditPlanSection } from '../components/footage/EditPlanSection'
 
 const STRONG_MOMENT = 70
 
@@ -139,7 +141,8 @@ export function FootageProjectPage() {
       const busy =
         p.status === 'analyzing' ||
         p.segments.some((s) => s.keywords.some((k) => isRunning(k.status))) ||
-        p.clips.some((c) => c.status === 'downloading')
+        p.clips.some((c) => c.status === 'downloading') ||
+        p.edit_plan?.status === 'building'
       return busy ? 2000 : false
     },
   })
@@ -198,6 +201,14 @@ export function FootageProjectPage() {
     },
     onError,
   })
+  const buildPlan = useMutation({
+    mutationFn: () => api.buildFootageEditPlan(projectId),
+    onSuccess: (p) => {
+      setProject(p)
+      setActionError(null)
+    },
+    onError,
+  })
   const deleteClip = useMutation({
     mutationFn: (id: string) => api.deleteFootageClip(id),
     onSuccess: setProject,
@@ -231,6 +242,20 @@ export function FootageProjectPage() {
       return next
     })
   }, [])
+
+  // A plan clip points at a video row and keyword; open the player with the
+  // live objects so its timeline shows every moment of that video.
+  function playPlanClip(p: FootageProject, segmentId: string, c: FootagePlanClip) {
+    const segment = p.segments.find((s) => s.id === segmentId)
+    const keyword = segment?.keywords.find((k) => k.id === c.keyword_id)
+    const video = keyword?.videos.find((v) => v.id === c.video_row_id)
+    if (!segment || !keyword || !video) {
+      window.open(youtubeAt(c.video_id, c.start), '_blank', 'noreferrer')
+      return
+    }
+    const moment = video.moments.find((m) => m.start === c.start && m.end === c.end) ?? null
+    handlers.play(segment, keyword, video, moment)
+  }
 
   const handlers: SegmentHandlers = {
     colorOf: (id) => colors.get(id) ?? '#a3a3a3',
@@ -366,6 +391,12 @@ export function FootageProjectPage() {
                     <p><span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-[#f59e0b]" />Only partial matches</p>
                     <p><span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-[#404040]" />Nothing fetched yet</p>
                   </div>
+                  <button
+                    onClick={() => document.getElementById('edit-plan')?.scrollIntoView({ behavior: 'smooth' })}
+                    className="mt-4 w-full border-2 border-brand-600 px-2 py-1.5 text-left font-display text-lg uppercase tracking-wide text-brand-400 transition hover:bg-brand-950"
+                  >
+                    🎬 Edit plan →
+                  </button>
                 </nav>
               </aside>
             )}
@@ -380,6 +411,28 @@ export function FootageProjectPage() {
               {project.segments.map((s, i) => (
                 <SegmentSection key={s.id} segment={s} index={i} showHeader={isScript} h={handlers} />
               ))}
+              {isScript && (
+                <EditPlanSection
+                  project={project}
+                  colorOf={handlers.colorOf}
+                  clipFor={(c) => clipsByKey.get(clipKey(c.video_id, c.start, c.end))}
+                  building={buildPlan.isPending}
+                  onBuild={() => buildPlan.mutate()}
+                  onPlay={(segmentId, c) => playPlanClip(project, segmentId, c)}
+                  onDownload={(position, clips) =>
+                    downloadClips.mutate(
+                      clips.map((c) => ({
+                        video_id: c.video_id,
+                        video_title: c.video_title,
+                        segment_position: position,
+                        label: c.label,
+                        start: c.start,
+                        end: c.end,
+                      })),
+                    )
+                  }
+                />
+              )}
             </div>
           </div>
         </>

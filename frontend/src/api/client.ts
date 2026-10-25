@@ -194,6 +194,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ clips }),
     }),
+  buildFootageEditPlan: (projectId: string) =>
+    request<FootageProject>(`/api/footage/projects/${projectId}/edit-plan`, { method: 'POST' }),
   deleteFootageClip: (clipId: string) =>
     request<FootageProject>(`/api/footage/clips/${clipId}`, { method: 'DELETE' }),
 }

@@ -281,6 +281,8 @@ export interface FootageProject {
   batches: FootageBatch[]
   keywords_per_wave: number
   clips: FootageClip[]
+  edit_plan: FootageEditPlan | null
+  moment_count: number
 }
 
 export interface FootageProjectSummary {
@@ -315,4 +317,45 @@ export interface FootageClipRequest {
   label: string
   start: number
   end: number
+}
+
+export interface FootagePlanClip {
+  video_row_id: string
+  keyword_id: string
+  keyword_text: string
+  video_id: string
+  video_title: string
+  channel: string
+  thumbnail_url: string | null
+  start: number
+  end: number
+  label: string
+  description: string
+  fit: string
+  score: number
+  estimated: boolean
+}
+
+export interface FootagePlanBeat {
+  type: 'anchor' | 'clip'
+  text: string
+  est_seconds: number
+  note: string
+  clip: FootagePlanClip | null
+  clip_short_by?: number
+}
+
+export interface FootagePlanSegment {
+  segment_id: string
+  position: number
+  title: string
+  beats: FootagePlanBeat[]
+}
+
+export interface FootageEditPlan {
+  status: 'building' | 'done' | 'error'
+  error_message: string | null
+  created_at: string
+  moment_count: number
+  plan: { segments: FootagePlanSegment[] } | null
 }

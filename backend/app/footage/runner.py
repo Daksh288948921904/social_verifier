@@ -5,6 +5,7 @@ import uuid
 
 from app.core import db
 from app.core.config import settings
+from app.footage.edit_plan import build_edit_plan, count_moments
 from app.footage.matcher import match_video
 from app.footage.script_parse import parse_script
 from app.footage.search import search_videos
@@ -202,6 +203,24 @@ async def _process_keyword(keyword_id: str) -> None:
         )
 
 
+async def run_edit_plan(project_id: str) -> None:
+    try:
+        moment_count = count_moments(project_id)
+        plan = await asyncio.to_thread(build_edit_plan, project_id)
+        db.execute(
+            "UPDATE footage_plans SET status='done', plan_json=?, moment_count=?, "
+            "completed_at=datetime('now') WHERE project_id=?",
+            (json.dumps(plan), moment_count, project_id),
+        )
+    except Exception as e:
+        logger.exception("Edit plan failed for footage project %s", project_id)
+        db.execute(
+            "UPDATE footage_plans SET status='error', error_message=?, completed_at=datetime('now') "
+            "WHERE project_id=?",
+            (str(e), project_id),
+        )
+
+
 def recover_interrupted() -> None:
     """Background jobs live only in this process, so anything mid-flight when
     the server last stopped is orphaned -- mark it as failed so the UI
@@ -217,6 +236,10 @@ def recover_interrupted() -> None:
     )
     db.execute(
         "UPDATE footage_batches SET status='done', completed_at=datetime('now') WHERE status='running'"
+    )
+    db.execute(
+        "UPDATE footage_plans SET status='error', "
+        "error_message='Interrupted by a server restart -- build it again.' WHERE status='building'"
     )
     db.execute(
         "UPDATE footage_clips SET status='error', "

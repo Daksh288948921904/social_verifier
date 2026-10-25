@@ -16,11 +16,13 @@ from starlette.background import BackgroundTask
 from app.core import db
 from app.core.config import settings
 from app.footage.clips import MAX_CLIP_SECONDS, clip_filename, run_clip_download
+from app.footage.edit_plan import count_moments
 from app.footage.runner import (
     PENDING_RELEVANCE,
     enqueue_batch,
     insert_keyword,
     insert_segment,
+    run_edit_plan,
     run_script_parse,
 )
 
@@ -188,6 +190,15 @@ def _project_detail(project_id: str) -> dict:
     out["segments"] = segments
     out["batches"] = batches
     out["keywords_per_wave"] = settings.footage_keywords_per_wave
+    plan = db.fetch_one("SELECT * FROM footage_plans WHERE project_id=?", (project_id,))
+    out["edit_plan"] = None if not plan else {
+        "status": plan["status"],
+        "error_message": plan["error_message"],
+        "created_at": plan["created_at"],
+        "moment_count": plan["moment_count"],
+        "plan": json.loads(plan["plan_json"]) if plan["plan_json"] else None,
+    }
+    out["moment_count"] = count_moments(project_id)
     out["clips"] = [
         {k: c[k] for k in (
             "id", "video_id", "video_title", "filename", "label", "start_seconds", "end_seconds",
@@ -225,7 +236,7 @@ def delete_project(project_id: str):
     if downloading["n"]:
         raise HTTPException(409, "Wait for the clip downloads to finish before deleting this project")
     shutil.rmtree(settings.data_dir / "footage_clips" / project_id, ignore_errors=True)
-    for table in ("footage_clips", "footage_keywords", "footage_batches", "footage_segments"):
+    for table in ("footage_plans", "footage_clips", "footage_keywords", "footage_batches", "footage_segments"):
         db.execute(f"DELETE FROM {table} WHERE project_id=?", (project_id,))
     db.execute("DELETE FROM footage_projects WHERE id=?", (project_id,))
     return {"ok": True}
@@ -374,3 +385,24 @@ def delete_clip(clip_id: str):
         Path(clip["file_path"]).unlink(missing_ok=True)
     db.execute("DELETE FROM footage_clips WHERE id=?", (clip_id,))
     return _project_detail(clip["project_id"])
+
+
+@router.post("/projects/{project_id}/edit-plan")
+async def create_edit_plan(project_id: str):
+    """(Re)builds the script-to-footage edit plan in the background. The
+    previous plan stays visible until the new one replaces it."""
+    project = db.fetch_one("SELECT mode, status FROM footage_projects WHERE id=?", (project_id,))
+    if not project:
+        raise HTTPException(404, "project not found")
+    if project["mode"] != "script" or project["status"] != "ready":
+        raise HTTPException(409, "An edit plan needs a script project that has finished splitting")
+    existing = db.fetch_one("SELECT status FROM footage_plans WHERE project_id=?", (project_id,))
+    if existing and existing["status"] == "building":
+        return _project_detail(project_id)
+    db.execute(
+        "INSERT INTO footage_plans (project_id, status) VALUES (?, 'building') "
+        "ON CONFLICT(project_id) DO UPDATE SET status='building', error_message=NULL, completed_at=NULL",
+        (project_id,),
+    )
+    asyncio.create_task(run_edit_plan(project_id))
+    return _project_detail(project_id)

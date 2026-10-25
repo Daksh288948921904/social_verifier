@@ -239,6 +239,16 @@ CREATE TABLE IF NOT EXISTS footage_clips (
     completed_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS footage_plans (
+    project_id TEXT PRIMARY KEY REFERENCES footage_projects(id),
+    status TEXT NOT NULL DEFAULT 'building',
+    plan_json TEXT,
+    moment_count INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS footage_transcripts (
     video_id TEXT PRIMARY KEY,
     duration_seconds REAL,

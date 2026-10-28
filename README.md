@@ -140,7 +140,7 @@ Frontend: set `VITE_API_BASE` at build time only if the frontend is hosted separ
 The repo is set up for **Render** via [`render.yaml`](render.yaml):
 
 - One **Docker** web service. The [`Dockerfile`](Dockerfile) builds the frontend, installs ffmpeg, Deno and the Python dependencies, and serves the frontend and API from the same address.
-- A **Postgres** database attached through `DATABASE_URL`, so sessions, fact-checks and projects survive redeploys.
+- A **Postgres** database on **Supabase**, attached through `DATABASE_URL`, so sessions, fact-checks and projects survive redeploys. Use the **Session pooler** connection string from Supabase (**Connect** → Session pooler, port 5432). Supabase's direct connection is IPv6-only and Render can't reach it. Tables are created on first start.
 
 Set the API keys in the Render dashboard. Cookie files can be uploaded as **Secret Files** and referenced by their path, e.g. `YTDLP_YOUTUBE_COOKIES_FILE=/etc/secrets/youtube_cookies.txt`.
 

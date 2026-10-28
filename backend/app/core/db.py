@@ -1,3 +1,4 @@
+import logging
 import sqlite3
 import threading
 from pathlib import Path
@@ -5,7 +6,11 @@ from typing import Any
 
 from app.core.config import settings
 
-_lock = threading.Lock()
+logger = logging.getLogger(__name__)
+
+# Re-entrant: a query that finds the connection dropped reconnects via
+# get_conn() while still holding the lock.
+_lock = threading.RLock()
 _conn: Any = None
 _is_postgres = bool(settings.database_url)
 
@@ -330,12 +335,21 @@ def _connect_postgres():
     import psycopg
     from psycopg.rows import dict_row
 
-    conn = psycopg.connect(settings.database_url, row_factory=dict_row, autocommit=False)
-    with conn.cursor() as cur:
-        cur.execute(_pg_translate(SCHEMA))
-    conn.commit()
-    _run_migrations_postgres(conn)
-    conn.commit()
+    # autocommit: every call below is its own statement anyway, and it keeps
+    # the session from sitting "idle in transaction" between requests, which
+    # hosted poolers (Supabase/Supavisor, PgBouncer) cut off.
+    # prepare_threshold=None: transaction-mode poolers (Supabase port 6543)
+    # can't hold server-side prepared statements across transactions.
+    conn = psycopg.connect(
+        settings.database_url, row_factory=dict_row, autocommit=True,
+        prepare_threshold=None, connect_timeout=15,
+    )
+    global _schema_ready
+    if not _schema_ready:
+        with conn.cursor() as cur:
+            cur.execute(_pg_translate(SCHEMA))
+        _run_migrations_postgres(conn)
+        _schema_ready = True
     return conn
 
 
@@ -351,6 +365,37 @@ def _connect_sqlite():
     return conn
 
 
+_schema_ready = False
+
+
+def _pg_query(query: str, params: tuple, fetch: str | None):
+    """Runs one Postgres statement, reconnecting once if the server or a
+    pooler dropped the connection (idle timeouts, database restarts) --
+    otherwise one dropped connection would fail every request until the
+    app restarted. Caller holds _lock."""
+    import psycopg
+
+    global _conn
+    for attempt in (1, 2):
+        try:
+            cur = get_conn().cursor()
+            cur.execute(_pg_translate(query), params)
+            if fetch == "one":
+                return cur.fetchone()
+            if fetch == "all":
+                return cur.fetchall()
+            return cur
+        except (psycopg.OperationalError, psycopg.InterfaceError):
+            if attempt == 2:
+                raise
+            logger.warning("Postgres connection lost; reconnecting")
+            try:
+                _conn.close()
+            except Exception:
+                pass
+            _conn = None
+
+
 def get_conn():
     global _conn
     if _conn is None:
@@ -361,35 +406,31 @@ def get_conn():
 
 
 def execute(query: str, params: tuple = ()):
+    if _is_postgres:
+        with _lock:
+            return _pg_query(query, params, None)
     conn = get_conn()
     with _lock:
-        if _is_postgres:
-            cur = conn.cursor()
-            cur.execute(_pg_translate(query), params)
-            conn.commit()
-            return cur
         cur = conn.execute(query, params)
         conn.commit()
         return cur
 
 
 def fetch_one(query: str, params: tuple = ()):
+    if _is_postgres:
+        with _lock:
+            return _pg_query(query, params, "one")
     conn = get_conn()
     with _lock:
-        if _is_postgres:
-            cur = conn.cursor()
-            cur.execute(_pg_translate(query), params)
-            return cur.fetchone()
         cur = conn.execute(query, params)
         return cur.fetchone()
 
 
 def fetch_all(query: str, params: tuple = ()):
+    if _is_postgres:
+        with _lock:
+            return _pg_query(query, params, "all")
     conn = get_conn()
     with _lock:
-        if _is_postgres:
-            cur = conn.cursor()
-            cur.execute(_pg_translate(query), params)
-            return cur.fetchall()
         cur = conn.execute(query, params)
         return cur.fetchall()

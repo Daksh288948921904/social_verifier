@@ -11,10 +11,11 @@ services:
         value: /app/backend/data
       - key: COOKIE_SECURE
         value: "true"
+      # Postgres on Supabase: use the Session pooler connection string
+      # (Connect -> Session pooler, port 5432) -- Supabase's direct
+      # connection is IPv6-only, which Render can't reach.
       - key: DATABASE_URL
-        fromDatabase:
-          name: live-cutter-db
-          property: connectionString
+        sync: false
       - key: GROQ_API_KEY
         sync: false
       - key: GROQ_API_KEY_2
@@ -49,8 +50,3 @@ services:
       - key: YTDLP_YOUTUBE_COOKIES_FILE
         sync: false
 
-databases:
-  - name: live-cutter-db
-    plan: free
-    databaseName: live_cutter
-    user: live_cutter

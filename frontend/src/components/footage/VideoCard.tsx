@@ -1,5 +1,6 @@
-import type { FootageClip, FootageMoment, FootageVideo } from '../../api/types'
+import type { FootageClip, FootageMoment, FootagePick, FootageVideo } from '../../api/types'
 import { ClipButton } from './ClipButton'
+import { PickButton } from './PickButton'
 import { MomentTimeline } from './MomentTimeline'
 import { fitLabel, fmtTime } from './format'
 
@@ -9,12 +10,18 @@ export function VideoCard({
   onPlay,
   clipFor,
   onDownload,
+  pickFor,
+  onPush,
+  onUnpick,
 }: {
   video: FootageVideo
   color: string
   onPlay: (video: FootageVideo, moment: FootageMoment | null) => void
   clipFor: (video: FootageVideo, moment: FootageMoment) => FootageClip | undefined
   onDownload: (video: FootageVideo, moment: FootageMoment) => void
+  pickFor: (video: FootageVideo, moment: FootageMoment) => FootagePick | undefined
+  onPush: (video: FootageVideo, moment: FootageMoment) => void
+  onUnpick: (pick: FootagePick) => void
 }) {
   const fit = video.relevance != null ? fitLabel(video.relevance) : null
   const best = video.moments[0] ?? null
@@ -105,7 +112,8 @@ export function VideoCard({
                       <p className="mt-1 text-[11px] italic text-neutral-500">↳ {m.fit}</p>
                     )}
                   </button>
-                  <div className="px-2 pb-2">
+                  <div className="flex flex-wrap gap-1.5 px-2 pb-2">
+                    <PickButton pick={pickFor(video, m)} onPush={() => onPush(video, m)} onRemove={onUnpick} compact />
                     <ClipButton clip={clipFor(video, m)} onDownload={() => onDownload(video, m)} compact />
                   </div>
                 </li>

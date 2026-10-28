@@ -16,10 +16,12 @@ from starlette.background import BackgroundTask
 from app.core import db
 from app.core.config import settings
 from app.footage.clips import MAX_CLIP_SECONDS, clip_filename, run_clip_download
-from app.footage.edit_plan import count_moments
+from app.footage.edit_plan import PLAN_MODES, PlanEditError, apply_plan_edit, plan_signature
 from app.footage.runner import (
+    CLIP_FILE_GONE,
     PENDING_RELEVANCE,
     enqueue_batch,
+    expire_missing_clips,
     insert_keyword,
     insert_segment,
     run_edit_plan,
@@ -41,6 +43,7 @@ class CreateProjectRequest(BaseModel):
 
 class CreateBatchRequest(BaseModel):
     keyword_ids: list[str]
+    fresh: bool = False  # skip videos already found -> different results
 
 
 class AddKeywordRequest(BaseModel):
@@ -58,6 +61,29 @@ class ClipRequest(BaseModel):
 
 class CreateClipsRequest(BaseModel):
     clips: list[ClipRequest]
+
+
+class EditPlanRequest(BaseModel):
+    mode: str = "picks"  # 'picks' | 'auto' | 'mixed' -- see edit_plan._segment_candidates
+
+
+class EditPlanUpdate(BaseModel):
+    segments: list[dict]  # [{segment_id, beats: [{type, text, note, clip, added, clip_audio}]}]
+
+
+class PickRequest(BaseModel):
+    segment_id: str
+    keyword_id: str | None = None
+    video_id: str
+    video_title: str = ""
+    channel: str = ""
+    thumbnail_url: str | None = None
+    start: float
+    end: float
+    label: str = ""
+    description: str = ""
+    source: str = "suggested"  # 'suggested' (an AI-found moment) | 'custom' (your own timestamps)
+    clip_audio: bool = False  # keep the clip's own sound in the edit (otherwise muted under the VO)
 
 
 def _create_script_project(title: str, script: str) -> dict:
@@ -195,10 +221,25 @@ def _project_detail(project_id: str) -> dict:
         "status": plan["status"],
         "error_message": plan["error_message"],
         "created_at": plan["created_at"],
-        "moment_count": plan["moment_count"],
+        "mode": plan["plan_mode"] or "picks",
+        # Out of date when what it was built from (pushed clips and/or AI
+        # moments, depending on its mode) has changed since.
+        "stale": plan["status"] == "done"
+        and plan["signature"] != plan_signature(project_id, plan["plan_mode"] or "picks"),
         "plan": json.loads(plan["plan_json"]) if plan["plan_json"] else None,
     }
-    out["moment_count"] = count_moments(project_id)
+    out["picks"] = [
+        {
+            "id": r["id"], "segment_id": r["segment_id"], "keyword_id": r["keyword_id"],
+            "video_id": r["video_id"], "video_title": r["video_title"], "channel": r["channel"],
+            "thumbnail_url": r["thumbnail_url"], "start": r["start_seconds"], "end": r["end_seconds"],
+            "label": r["label"], "description": r["description"], "source": r["source"],
+            "clip_audio": bool(r["clip_audio"]),
+        }
+        for r in db.fetch_all(
+            "SELECT * FROM footage_picks WHERE project_id=? ORDER BY created_at, start_seconds", (project_id,),
+        )
+    ]
     out["clips"] = [
         {k: c[k] for k in (
             "id", "video_id", "video_title", "filename", "label", "start_seconds", "end_seconds",
@@ -236,7 +277,7 @@ def delete_project(project_id: str):
     if downloading["n"]:
         raise HTTPException(409, "Wait for the clip downloads to finish before deleting this project")
     shutil.rmtree(settings.data_dir / "footage_clips" / project_id, ignore_errors=True)
-    for table in ("footage_plans", "footage_clips", "footage_keywords", "footage_batches", "footage_segments"):
+    for table in ("footage_picks", "footage_plans", "footage_clips", "footage_keywords", "footage_batches", "footage_segments"):
         db.execute(f"DELETE FROM {table} WHERE project_id=?", (project_id,))
     db.execute("DELETE FROM footage_projects WHERE id=?", (project_id,))
     return {"ok": True}
@@ -251,7 +292,7 @@ async def create_batch(project_id: str, req: CreateBatchRequest):
         raise HTTPException(409, "The script is still being split into segments")
     if not req.keyword_ids:
         raise HTTPException(400, "Select at least one keyword")
-    enqueue_batch(project_id, req.keyword_ids)
+    enqueue_batch(project_id, req.keyword_ids, fresh=req.fresh)
     return _project_detail(project_id)
 
 
@@ -325,8 +366,11 @@ def _ready_clip(clip_id: str):
     clip = db.fetch_one("SELECT * FROM footage_clips WHERE id=?", (clip_id,))
     if not clip:
         raise HTTPException(404, "clip not found")
-    if clip["status"] != "done" or not clip["file_path"] or not Path(clip["file_path"]).exists():
+    if clip["status"] != "done":
         raise HTTPException(404, "clip is not ready")
+    if not clip["file_path"] or not Path(clip["file_path"]).exists():
+        expire_missing_clips()
+        raise HTTPException(410, CLIP_FILE_GONE)
     return clip
 
 
@@ -388,7 +432,7 @@ def delete_clip(clip_id: str):
 
 
 @router.post("/projects/{project_id}/edit-plan")
-async def create_edit_plan(project_id: str):
+async def create_edit_plan(project_id: str, req: EditPlanRequest | None = None):
     """(Re)builds the script-to-footage edit plan in the background. The
     previous plan stays visible until the new one replaces it."""
     project = db.fetch_one("SELECT mode, status FROM footage_projects WHERE id=?", (project_id,))
@@ -396,13 +440,97 @@ async def create_edit_plan(project_id: str):
         raise HTTPException(404, "project not found")
     if project["mode"] != "script" or project["status"] != "ready":
         raise HTTPException(409, "An edit plan needs a script project that has finished splitting")
+    mode = req.mode if req else "picks"
+    if mode not in PLAN_MODES:
+        raise HTTPException(400, f"mode must be one of {', '.join(PLAN_MODES)}")
     existing = db.fetch_one("SELECT status FROM footage_plans WHERE project_id=?", (project_id,))
     if existing and existing["status"] == "building":
         return _project_detail(project_id)
     db.execute(
-        "INSERT INTO footage_plans (project_id, status) VALUES (?, 'building') "
-        "ON CONFLICT(project_id) DO UPDATE SET status='building', error_message=NULL, completed_at=NULL",
-        (project_id,),
+        "INSERT INTO footage_plans (project_id, status, plan_mode) VALUES (?, 'building', ?) "
+        "ON CONFLICT(project_id) DO UPDATE SET status='building', plan_mode=excluded.plan_mode, "
+        "error_message=NULL, completed_at=NULL",
+        (project_id, mode),
     )
-    asyncio.create_task(run_edit_plan(project_id))
+    asyncio.create_task(run_edit_plan(project_id, mode))
+    return _project_detail(project_id)
+
+
+def _set_plan_clip_audio(project_id: str, pick_id: str, clip_audio: bool) -> None:
+    """Carries a changed sound choice over to every plan beat using that pick."""
+    plan = db.fetch_one("SELECT plan_json FROM footage_plans WHERE project_id=? AND status='done'", (project_id,))
+    if not plan or not plan["plan_json"]:
+        return
+    data = json.loads(plan["plan_json"])
+    changed = False
+    for seg in data.get("segments", []):
+        for beat in seg.get("beats", []):
+            if (beat.get("clip") or {}).get("pick_id") == pick_id and beat.get("clip_audio") != clip_audio:
+                beat["clip_audio"] = beat["clip"]["clip_audio"] = clip_audio
+                changed = True
+    if changed:
+        db.execute("UPDATE footage_plans SET plan_json=? WHERE project_id=?", (json.dumps(data), project_id))
+
+
+@router.post("/projects/{project_id}/picks")
+def push_pick(project_id: str, req: PickRequest):
+    """Pushes a clip to the edit plan's shortlist for one segment -- either a
+    suggested moment or a range you typed in yourself. Pushing the exact
+    same range again only updates its sound choice."""
+    if not db.fetch_one(
+        "SELECT id FROM footage_segments WHERE id=? AND project_id=?", (req.segment_id, project_id),
+    ):
+        raise HTTPException(404, "segment not found")
+    start = max(0.0, req.start)
+    end = req.end
+    if end <= start:
+        raise HTTPException(400, "The end time must be after the start time")
+    if end - start > MAX_CLIP_SECONDS:
+        raise HTTPException(400, f"A clip can be at most {MAX_CLIP_SECONDS // 60} minutes long")
+    if req.source not in ("suggested", "custom"):
+        raise HTTPException(400, "source must be 'suggested' or 'custom'")
+    exists = db.fetch_one(
+        "SELECT id FROM footage_picks WHERE segment_id=? AND video_id=? AND start_seconds=? AND end_seconds=?",
+        (req.segment_id, req.video_id, start, end),
+    )
+    if exists:
+        db.execute("UPDATE footage_picks SET clip_audio=? WHERE id=?", (int(req.clip_audio), exists["id"]))
+        _set_plan_clip_audio(project_id, exists["id"], req.clip_audio)
+    else:
+        db.execute(
+            "INSERT INTO footage_picks (id, project_id, segment_id, keyword_id, video_id, video_title, "
+            "channel, thumbnail_url, start_seconds, end_seconds, label, description, source, clip_audio) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                str(uuid.uuid4()), project_id, req.segment_id, req.keyword_id, req.video_id,
+                req.video_title, req.channel, req.thumbnail_url, start, end,
+                req.label.strip(), req.description.strip(), req.source, int(req.clip_audio),
+            ),
+        )
+    return _project_detail(project_id)
+
+
+@router.delete("/picks/{pick_id}")
+def remove_pick(pick_id: str):
+    pick = db.fetch_one("SELECT project_id FROM footage_picks WHERE id=?", (pick_id,))
+    if not pick:
+        raise HTTPException(404, "pick not found")
+    db.execute("DELETE FROM footage_picks WHERE id=?", (pick_id,))
+    return _project_detail(pick["project_id"])
+
+
+@router.put("/projects/{project_id}/edit-plan")
+def update_edit_plan(project_id: str, req: EditPlanUpdate):
+    """Saves hand edits to the plan: removed, moved or swapped clips and
+    moved cut points. Only the segments sent are changed."""
+    plan = db.fetch_one("SELECT status, plan_json FROM footage_plans WHERE project_id=?", (project_id,))
+    if not plan or plan["status"] != "done" or not plan["plan_json"]:
+        raise HTTPException(409, "There's no finished plan to edit")
+    try:
+        updated = apply_plan_edit(json.loads(plan["plan_json"]), req.segments)
+    except PlanEditError as e:
+        raise HTTPException(400, str(e))
+    db.execute(
+        "UPDATE footage_plans SET plan_json=? WHERE project_id=?", (json.dumps(updated), project_id),
+    )
     return _project_detail(project_id)

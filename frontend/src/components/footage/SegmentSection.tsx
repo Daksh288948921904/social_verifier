@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import type { FootageClip, FootageKeyword, FootageMoment, FootageSegment, FootageVideo } from '../../api/types'
+import type { FootageClip, FootageKeyword, FootageMoment, FootagePick, FootageSegment, FootageVideo } from '../../api/types'
 import { Card } from '../ui/Card'
 import { ClipButton } from './ClipButton'
 import { KeywordChip } from './KeywordChip'
 import { KeywordGroup } from './KeywordGroup'
+import { PickButton } from './PickButton'
 import { fmtTime, isRunning } from './format'
 
 const BEST_PICKS = 3
@@ -18,8 +19,66 @@ export interface SegmentHandlers {
   addKeyword: (segmentId: string, text: string) => void
   deleteKeyword: (keywordId: string) => void
   rerun: (keywordId: string) => void
+  fresh: (keywordId: string) => void
   clipFor: (video: FootageVideo, moment: FootageMoment) => FootageClip | undefined
   download: (segment: FootageSegment, items: { video: FootageVideo; moment: FootageMoment }[]) => void
+  picksOf: (segmentId: string) => FootagePick[]
+  pickFor: (segmentId: string, videoId: string, start: number, end: number) => FootagePick | undefined
+  push: (segment: FootageSegment, keyword: FootageKeyword, video: FootageVideo, moment: FootageMoment) => void
+  unpick: (pick: FootagePick) => void
+  playPick: (segment: FootageSegment, pick: FootagePick) => void
+}
+
+function PushedToPlan({ segment, h }: { segment: FootageSegment; h: SegmentHandlers }) {
+  const picks = h.picksOf(segment.id)
+  return (
+    <div className="border-2 border-dashed border-brand-900 bg-brand-950/20 p-3">
+      <p className="mb-2 font-mono text-[11px] uppercase tracking-widest text-brand-400">
+        📌 Pushed to plan · {picks.length} clip{picks.length === 1 ? '' : 's'}
+      </p>
+      {picks.length === 0 ? (
+        <p className="text-xs text-neutral-500">
+          Nothing yet. The edit plan only uses clips you choose — press <b>📌 Push to plan</b> on any moment below,
+          or open a video and set your own timestamps.
+        </p>
+      ) : (
+        <ul className="flex flex-wrap gap-2">
+          {picks.map((p) => (
+            <li key={p.id} className="flex w-64 items-stretch border border-neutral-800 bg-black/60">
+              <button onClick={() => h.playPick(segment, p)} className="relative w-24 shrink-0" title="Play this clip">
+                <img
+                  src={p.thumbnail_url ?? `https://i.ytimg.com/vi/${p.video_id}/mqdefault.jpg`}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+                <span className="absolute bottom-0 left-0 bg-black/85 px-1 font-mono text-[10px] text-neutral-100">
+                  ▶ {fmtTime(p.start)}–{fmtTime(p.end)}
+                </span>
+              </button>
+              <div className="min-w-0 flex-1 p-1.5">
+                <p className="truncate text-[11px] font-bold uppercase text-neutral-100" title={p.label}>
+                  {p.label || 'Untitled clip'}
+                </p>
+                <p className="truncate font-mono text-[10px] text-neutral-500" title={p.video_title}>{p.video_title}</p>
+                <div className="mt-1 flex items-center justify-between">
+                  <span className={`font-mono text-[9px] uppercase tracking-wider ${p.source === 'custom' ? 'text-cyan-400' : 'text-neutral-500'}`}>
+                    {p.source === 'custom' ? '✎ Your timestamps' : '✦ AI moment'}
+                  </span>
+                  <button
+                    onClick={() => h.unpick(p)}
+                    aria-label={`Remove ${p.label || 'clip'} from the plan`}
+                    className="font-mono text-[11px] text-neutral-500 hover:text-brand-400"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 function BestPicks({ segment, h }: { segment: FootageSegment; h: SegmentHandlers }) {
@@ -90,7 +149,12 @@ function BestPicks({ segment, h }: { segment: FootageSegment; h: SegmentHandlers
                   </p>
                 </div>
               </button>
-              <div className="px-2.5 pb-2.5">
+              <div className="flex flex-wrap gap-2 px-2.5 pb-2.5">
+                <PickButton
+                  pick={h.pickFor(segment.id, v.video_id, m.start, m.end)}
+                  onPush={() => h.push(segment, k, v, m)}
+                  onRemove={h.unpick}
+                />
                 <ClipButton clip={h.clipFor(v, m)} onDownload={() => h.download(segment, [{ video: v, moment: m }])} />
               </div>
             </div>
@@ -163,6 +227,8 @@ export function SegmentSection({
         </div>
       )}
 
+      {showHeader && <PushedToPlan segment={segment} h={h} />}
+
       <BestPicks segment={segment} h={h} />
 
       <div>
@@ -210,8 +276,12 @@ export function SegmentSection({
               color={h.colorOf(k.id)}
               onPlay={(v, m) => h.play(segment, k, v, m)}
               onRerun={() => h.rerun(k.id)}
+              onFresh={() => h.fresh(k.id)}
               clipFor={h.clipFor}
               onDownload={(v, m) => h.download(segment, [{ video: v, moment: m }])}
+              pickFor={(v, m) => h.pickFor(segment.id, v.video_id, m.start, m.end)}
+              onPush={(v, m) => h.push(segment, k, v, m)}
+              onUnpick={h.unpick}
             />
           ))}
         </div>

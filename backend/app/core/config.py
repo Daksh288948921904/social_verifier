@@ -4,7 +4,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # str_strip_whitespace: values pasted into a hosting dashboard often carry
+    # a trailing newline, which would otherwise end up inside URLs and keys
+    # (e.g. a DATABASE_URL naming the database "postgres\n").
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", str_strip_whitespace=True)
 
     groq_api_key: str = ""
     groq_api_key_2: str = ""
@@ -74,6 +77,11 @@ class Settings(BaseSettings):
     # model it replaces, supports response_format={"type": "json_object"},
     # which every caller of this setting relies on.
     segmentation_model: str = "openai/gpt-oss-120b"
+    # Groq's daily token cap is per model, per account: once
+    # segmentation_model's is used up, Footage falls back to these (comma
+    # separated, tried in order). Each must support JSON mode and
+    # reasoning_effort like gpt-oss-120b does.
+    groq_fallback_models: str = "openai/gpt-oss-20b"
     verification_model: str = "gpt-4.1"
 
     ffmpeg_bin: str = "ffmpeg"
@@ -118,6 +126,11 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def footage_models(self) -> list[str]:
+        fallbacks = [m.strip() for m in self.groq_fallback_models.split(",") if m.strip()]
+        return [self.segmentation_model] + [m for m in fallbacks if m != self.segmentation_model]
 
     @property
     def groq_api_keys(self) -> list[str]:

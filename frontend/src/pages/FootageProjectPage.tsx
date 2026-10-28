@@ -5,7 +5,10 @@ import { api } from '../api/client'
 import type {
   FootageClip,
   FootageClipRequest,
+  FootagePickRequest,
+  FootagePlanBeat,
   FootagePlanClip,
+  FootagePlanMode,
   FootageKeyword,
   FootageMoment,
   FootageProject,
@@ -21,7 +24,7 @@ import { SegmentSection } from '../components/footage/SegmentSection'
 import type { SegmentHandlers } from '../components/footage/SegmentSection'
 import { MomentPlayer } from '../components/footage/MomentPlayer'
 import type { PlayerTarget } from '../components/footage/MomentPlayer'
-import { clipKey, errorText, isRunning, keywordColor, youtubeAt } from '../components/footage/format'
+import { clipKey, errorText, isRunning, keywordColor, pickKey } from '../components/footage/format'
 import { DownloadsPanel } from '../components/footage/DownloadsPanel'
 import { EditPlanSection } from '../components/footage/EditPlanSection'
 
@@ -161,8 +164,9 @@ export function FootageProjectPage() {
   const onError = (e: unknown) => setActionError(errorText(e))
 
   const runBatch = useMutation({
-    mutationFn: (ids: string[]) => api.runFootageBatch(projectId, ids),
-    onSuccess: (p, ids) => {
+    mutationFn: ({ ids, fresh = false }: { ids: string[]; fresh?: boolean }) =>
+      api.runFootageBatch(projectId, ids, fresh),
+    onSuccess: (p, { ids }) => {
       setProject(p)
       setSelected((prev) => new Set([...prev].filter((id) => !ids.includes(id))))
       setActionError(null)
@@ -202,7 +206,29 @@ export function FootageProjectPage() {
     onError,
   })
   const buildPlan = useMutation({
-    mutationFn: () => api.buildFootageEditPlan(projectId),
+    mutationFn: (mode: FootagePlanMode) => api.buildFootageEditPlan(projectId, mode),
+    onSuccess: (p) => {
+      setProject(p)
+      setActionError(null)
+    },
+    onError,
+  })
+  const pushPick = useMutation({
+    mutationFn: (pick: FootagePickRequest) => api.pushFootagePick(projectId, pick),
+    onSuccess: (p) => {
+      setProject(p)
+      setActionError(null)
+    },
+    onError,
+  })
+  const removePick = useMutation({
+    mutationFn: (pickId: string) => api.removeFootagePick(pickId),
+    onSuccess: setProject,
+    onError,
+  })
+  const savePlan = useMutation({
+    mutationFn: ({ segmentId, beats }: { segmentId: string; beats: FootagePlanBeat[] }) =>
+      api.updateFootageEditPlan(projectId, [{ segment_id: segmentId, beats }]),
     onSuccess: (p) => {
       setProject(p)
       setActionError(null)
@@ -234,6 +260,11 @@ export function FootageProjectPage() {
     [project],
   )
 
+  const picksByKey = useMemo(
+    () => new Map((project?.picks ?? []).map((p) => [pickKey(p.segment_id, p.video_id, p.start, p.end), p])),
+    [project],
+  )
+
   const toggle = useCallback((id: string) => {
     setSelected((prev) => {
       const next = new Set(prev)
@@ -243,18 +274,75 @@ export function FootageProjectPage() {
     })
   }, [])
 
-  // A plan clip points at a video row and keyword; open the player with the
-  // live objects so its timeline shows every moment of that video.
-  function playPlanClip(p: FootageProject, segmentId: string, c: FootagePlanClip) {
+  // Opens the player for a pushed clip (or a plan beat built from one). Uses
+  // the live video from the results when it's still there, so its timeline
+  // shows every moment; a re-run keyword may have replaced it, in which case
+  // the pick's own saved details are enough to play the range.
+  function openRange(
+    p: FootageProject,
+    segmentId: string,
+    r: { keyword_id: string | null; video_id: string; video_title: string; channel: string; thumbnail_url: string | null; start: number; end: number; label: string; description: string },
+  ) {
     const segment = p.segments.find((s) => s.id === segmentId)
-    const keyword = segment?.keywords.find((k) => k.id === c.keyword_id)
-    const video = keyword?.videos.find((v) => v.id === c.video_row_id)
-    if (!segment || !keyword || !video) {
-      window.open(youtubeAt(c.video_id, c.start), '_blank', 'noreferrer')
-      return
+    if (!segment) return
+    const keyword =
+      segment.keywords.find((k) => k.id === r.keyword_id) ??
+      segment.keywords.find((k) => k.videos.some((v) => v.video_id === r.video_id))
+    const video: FootageVideo = keyword?.videos.find((v) => v.video_id === r.video_id) ?? {
+      id: r.video_id, video_id: r.video_id, title: r.video_title, channel: r.channel,
+      thumbnail_url: r.thumbnail_url, published_at: null, duration_seconds: null, has_transcript: false,
+      analyzed: true, relevance: null, verdict: '', moments: [],
     }
-    const moment = video.moments.find((m) => m.start === c.start && m.end === c.end) ?? null
-    handlers.play(segment, keyword, video, moment)
+    const moment: FootageMoment = video.moments.find((m) => m.start === r.start && m.end === r.end) ?? {
+      start: r.start, end: r.end, label: r.label, description: r.description, fit: '', score: 0,
+    }
+    setPlayer({
+      video,
+      moment,
+      keywordId: keyword?.id ?? r.keyword_id ?? '',
+      keywordText: keyword?.text ?? 'Your pick',
+      keywordColor: keyword ? colors.get(keyword.id) ?? '#a3a3a3' : '#22d3ee',
+      segmentId: segment.id,
+      segmentTitle: segment.title,
+      segmentPosition: segment.position,
+    })
+  }
+
+  function playPlanClip(p: FootageProject, segmentId: string, c: FootagePlanClip) {
+    openRange(p, segmentId, c)
+  }
+
+  // Everything that can fill a beat in one segment's plan: the clips you
+  // pushed, then every AI moment from that segment's scraped videos.
+  function planCandidates(p: FootageProject, segmentId: string): FootagePlanClip[] {
+    const segment = p.segments.find((s) => s.id === segmentId)
+    if (!segment) return []
+    const picks: FootagePlanClip[] = p.picks
+      .filter((x) => x.segment_id === segmentId)
+      .map((x) => ({
+        pick_id: x.id, keyword_id: x.keyword_id,
+        keyword_text: segment.keywords.find((k) => k.id === x.keyword_id)?.text ?? '',
+        video_id: x.video_id, video_title: x.video_title, channel: x.channel, thumbnail_url: x.thumbnail_url,
+        start: x.start, end: x.end, label: x.label, description: x.description, source: x.source, score: null,
+        clip_audio: x.clip_audio,
+      }))
+    const seen = new Set(picks.map((c) => `${c.video_id}:${c.start}:${c.end}`))
+    const ai: FootagePlanClip[] = []
+    for (const k of segment.keywords) {
+      for (const v of k.videos) {
+        for (const m of v.moments) {
+          const key = `${v.video_id}:${m.start}:${m.end}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          ai.push({
+            pick_id: null, keyword_id: k.id, keyword_text: k.text,
+            video_id: v.video_id, video_title: v.title, channel: v.channel, thumbnail_url: v.thumbnail_url,
+            start: m.start, end: m.end, label: m.label, description: m.description, source: 'ai', score: m.score,
+          })
+        }
+      }
+    }
+    return [...picks, ...ai]
   }
 
   const handlers: SegmentHandlers = {
@@ -266,17 +354,38 @@ export function FootageProjectPage() {
       setPlayer({
         video,
         moment,
+        keywordId: keyword.id,
         keywordText: keyword.text,
         keywordColor: colors.get(keyword.id) ?? '#a3a3a3',
+        segmentId: segment.id,
         segmentTitle: segment.title,
         segmentPosition: segment.position,
       }),
     addKeyword: (segmentId, text) => addKeyword.mutate({ segmentId, text }),
     deleteKeyword: (id) => deleteKeyword.mutate(id),
-    rerun: (id) => runBatch.mutate([id]),
+    rerun: (id) => runBatch.mutate({ ids: [id] }),
+    fresh: (id) => runBatch.mutate({ ids: [id], fresh: true }),
     clipFor: (video, moment) => clipsByKey.get(clipKey(video.video_id, moment.start, moment.end)),
     download: (segment, items) =>
       downloadClips.mutate(items.map(({ video, moment }) => toClipRequest(segment.position, video, moment))),
+    picksOf: (segmentId) => (project?.picks ?? []).filter((p) => p.segment_id === segmentId),
+    pickFor: (segmentId, videoId, start, end) => picksByKey.get(pickKey(segmentId, videoId, start, end)),
+    push: (segment, keyword, video, moment) =>
+      pushPick.mutate({
+        segment_id: segment.id,
+        keyword_id: keyword.id,
+        video_id: video.video_id,
+        video_title: video.title,
+        channel: video.channel,
+        thumbnail_url: video.thumbnail_url,
+        start: moment.start,
+        end: moment.end,
+        label: moment.label,
+        description: moment.description,
+        source: 'suggested',
+      }),
+    unpick: (pick) => removePick.mutate(pick.id),
+    playPick: (segment, pick) => project && openRange(project, segment.id, pick),
   }
 
   if (isLoading) {
@@ -350,7 +459,7 @@ export function FootageProjectPage() {
             project={project}
             selected={selected.size}
             pending={runBatch.isPending}
-            onRun={() => runBatch.mutate([...selected])}
+            onRun={() => runBatch.mutate({ ids: [...selected] })}
             onClear={() => setSelected(new Set())}
           />
           {actionError && <p className="-mt-3 mb-4 font-mono text-sm text-brand-400">{actionError}</p>}
@@ -381,6 +490,9 @@ export function FootageProjectPage() {
                           </span>
                           <span className="font-mono text-[10px] text-neutral-500">
                             {st.done}/{st.total} fetched{st.best ? ` · best ${st.best}` : ''}
+                            {handlers.picksOf(s.id).length > 0 && (
+                              <span className="text-brand-400"> · 📌 {handlers.picksOf(s.id).length}</span>
+                            )}
                           </span>
                         </span>
                       </button>
@@ -417,8 +529,15 @@ export function FootageProjectPage() {
                   colorOf={handlers.colorOf}
                   clipFor={(c) => clipsByKey.get(clipKey(c.video_id, c.start, c.end))}
                   building={buildPlan.isPending}
-                  onBuild={() => buildPlan.mutate()}
+                  onBuild={(mode) => buildPlan.mutate(mode)}
                   onPlay={(segmentId, c) => playPlanClip(project, segmentId, c)}
+                  onSave={(segmentId, beats) => savePlan.mutate({ segmentId, beats })}
+                  saving={savePlan.isPending}
+                  candidatesFor={(segmentId) => planCandidates(project, segmentId)}
+                  onFresh={(keywordId) => runBatch.mutate({ ids: [keywordId], fresh: true })}
+                  isKeywordRunning={(keywordId) =>
+                    project.segments.some((s) => s.keywords.some((k) => k.id === keywordId && isRunning(k.status)))
+                  }
                   onDownload={(position, clips) =>
                     downloadClips.mutate(
                       clips.map((c) => ({
@@ -442,10 +561,37 @@ export function FootageProjectPage() {
         <MomentPlayer
           target={player}
           onClose={() => setPlayer(null)}
-          clipFor={handlers.clipFor}
-          onDownload={(video, moment) =>
-            downloadClips.mutate([toClipRequest(player.segmentPosition, video, moment)])
-          }
+          actions={{
+            clipFor: (start, end) => clipsByKey.get(clipKey(player.video.video_id, start, end)),
+            onDownload: (start, end, label) =>
+              downloadClips.mutate([
+                {
+                  video_id: player.video.video_id,
+                  video_title: player.video.title,
+                  segment_position: player.segmentPosition,
+                  label,
+                  start,
+                  end,
+                },
+              ]),
+            pickFor: (start, end) => picksByKey.get(pickKey(player.segmentId, player.video.video_id, start, end)),
+            onPush: (start, end, label, description, source, clipAudio) =>
+              pushPick.mutate({
+                segment_id: player.segmentId,
+                keyword_id: player.keywordId || null,
+                video_id: player.video.video_id,
+                video_title: player.video.title,
+                channel: player.video.channel,
+                thumbnail_url: player.video.thumbnail_url,
+                start,
+                end,
+                label,
+                description,
+                source,
+                clip_audio: clipAudio,
+              }),
+            onUnpick: (pick) => removePick.mutate(pick.id),
+          }}
         />
       )}
     </div>

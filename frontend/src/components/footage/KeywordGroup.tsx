@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { FootageClip, FootageKeyword, FootageMoment, FootageVideo } from '../../api/types'
+import type { FootageClip, FootageKeyword, FootageMoment, FootagePick, FootageVideo } from '../../api/types'
 import { Button } from '../ui/Button'
 import { VideoCard } from './VideoCard'
 import { isRunning } from './format'
@@ -9,15 +9,23 @@ export function KeywordGroup({
   color,
   onPlay,
   onRerun,
+  onFresh,
   clipFor,
   onDownload,
+  pickFor,
+  onPush,
+  onUnpick,
 }: {
   keyword: FootageKeyword
   color: string
   onPlay: (video: FootageVideo, moment: FootageMoment | null) => void
   onRerun: () => void
+  onFresh: () => void
   clipFor: (video: FootageVideo, moment: FootageMoment) => FootageClip | undefined
   onDownload: (video: FootageVideo, moment: FootageMoment) => void
+  pickFor: (video: FootageVideo, moment: FootageMoment) => FootagePick | undefined
+  onPush: (video: FootageVideo, moment: FootageMoment) => void
+  onUnpick: (pick: FootagePick) => void
 }) {
   const [open, setOpen] = useState(true)
   const running = isRunning(keyword.status)
@@ -56,9 +64,19 @@ export function KeywordGroup({
           )}
         </span>
         {!running && (
-          <Button size="sm" variant="ghost" className="ml-auto" onClick={onRerun}>
-            ↻ Re-run
-          </Button>
+          <div className="ml-auto flex gap-2">
+            <Button size="sm" onClick={onRerun} title="Run the same search again and re-analyse its videos">
+              ↻ Same search
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={onFresh}
+              title={`Search YouTube for "${keyword.text}" again, skipping every video already found`}
+            >
+              ⟳ New videos
+            </Button>
+          </div>
         )}
       </div>
       {keyword.rationale && open && (
@@ -70,7 +88,17 @@ export function KeywordGroup({
       {open && videos.length > 0 && (
         <div className="grid grid-cols-1 gap-3 px-3 pb-3 sm:grid-cols-2 xl:grid-cols-3">
           {videos.map((v) => (
-            <VideoCard key={v.id} video={v} color={color} onPlay={onPlay} clipFor={clipFor} onDownload={onDownload} />
+            <VideoCard
+              key={v.id}
+              video={v}
+              color={color}
+              onPlay={onPlay}
+              clipFor={clipFor}
+              onDownload={onDownload}
+              pickFor={pickFor}
+              onPush={onPush}
+              onUnpick={onUnpick}
+            />
           ))}
         </div>
       )}

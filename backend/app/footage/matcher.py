@@ -3,8 +3,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 
-from app.core.config import settings
-from app.core.groq_pool import call_rotating
+from app.core.groq_pool import call_models
 from app.footage.transcript import VideoTranscript
 
 logger = logging.getLogger(__name__)
@@ -149,8 +148,8 @@ def match_video(segment: dict, keyword: dict, video: dict, transcript: VideoTran
     else:
         parts.append("Transcript: (not available for this video)")
 
-    response = call_rotating(lambda client: client.chat.completions.create(
-        model=settings.segmentation_model,
+    response = call_models(lambda client, model: client.chat.completions.create(
+        model=model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": "\n".join(parts)},

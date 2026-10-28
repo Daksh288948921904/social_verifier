@@ -1,5 +1,5 @@
 import { apiUrl } from '../../api/base'
-import type { FootageClip, FootageKeywordStatus } from '../../api/types'
+import type { FootageClip, FootageKeywordStatus, FootagePlanClip } from '../../api/types'
 
 // Each keyword gets its own accent so its chip, its results group and the
 // "via" tag on a best-pick all read as the same thing at a glance. Brand red
@@ -59,4 +59,21 @@ export function clipKey(videoId: string, start: number, end: number): string {
 
 export function clipFileUrl(clip: FootageClip): string {
   return apiUrl(`/api/footage/clips/${clip.id}/file`)
+}
+
+// A pick is one segment's use of one exact range of one video.
+export function pickKey(segmentId: string, videoId: string, start: number, end: number): string {
+  return `${segmentId}:${videoId}:${start}:${end}`
+}
+
+// "83", "1:23", "1:23.5" or "1:02:03" -> seconds; null if it isn't a time.
+export function parseTime(text: string): number | null {
+  const parts = text.trim().split(':')
+  if (!parts[0] || parts.length > 3 || parts.some((p) => !/^\d+(\.\d+)?$/.test(p))) return null
+  return parts.reduce((total, p) => total * 60 + Number(p), 0)
+}
+
+// Identifies a clip within the edit plan by its video and exact range.
+export function planClipKey(c: FootagePlanClip): string {
+  return `${c.video_id}:${c.start}:${c.end}`
 }

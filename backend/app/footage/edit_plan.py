@@ -4,8 +4,7 @@ import logging
 import re
 
 from app.core import db
-from app.core.config import settings
-from app.core.groq_pool import call_rotating
+from app.core.groq_pool import call_models
 
 logger = logging.getLogger(__name__)
 
@@ -170,8 +169,8 @@ def _plan_segment(segment: dict, mode: str) -> list[dict]:
         + (f" -- shows: {c['description']}" if c["description"] else "")
         for i, c in enumerate(candidates)
     )
-    response = call_rotating(lambda client: client.chat.completions.create(
-        model=settings.segmentation_model,
+    response = call_models(lambda client, model: client.chat.completions.create(
+        model=model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": (

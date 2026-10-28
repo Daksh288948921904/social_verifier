@@ -55,17 +55,48 @@ def _parse_retry_after(message: str) -> float | None:
     return minutes * 60 + seconds
 
 
-def call_rotating(fn: Callable[[Groq], T]) -> T:
+class GroqQuotaError(RuntimeError):
+    """Every key and model is rate-limited -- carries a readable message
+    (it ends up on screen) instead of Groq's raw JSON error."""
+
+
+def call_models(fn: Callable[[Groq, str], T]) -> T:
+    """call_rotating() over settings.footage_models: when the main model's
+    limit is hit on every key, move on to the next model -- Groq meters each
+    model separately, so a fallback model usually still has budget. Only
+    the last model waits out a short limit; earlier ones switch straight away."""
+    models = settings.footage_models
+    for i, model in enumerate(models):
+        last = i == len(models) - 1
+        try:
+            return call_rotating(lambda client: fn(client, model), wait=last)
+        except RateLimitError as e:
+            retry = _parse_retry_after(str(e))
+            if not last:
+                logger.warning("Groq model %s rate-limited on every key; falling back to %s", model, models[i + 1])
+                continue
+            when = f" Try again in about {round(retry / 60) or 1} min," if retry else " Try again later,"
+            raise GroqQuotaError(
+                "The AI usage limit (Groq) is used up for today on every key and model."
+                + when + " or add another Groq API key from a different Groq account."
+            ) from e
+    raise AssertionError("unreachable")
+
+
+def call_rotating(fn: Callable[[Groq], T], wait: bool = True) -> T:
     """Like call_with_retry, but a rate-limited key moves on to the next key
     straight away instead of waiting. Each key has its own daily token cap,
     so one exhausted key (a multi-minute wait) says nothing about the others.
-    Only once every key has been tried does it fall back to waiting it out."""
+    Only once every key has been tried does it fall back to waiting it out
+    (or, with wait=False, raising so the caller can try something else)."""
     attempts = len(settings.groq_api_keys)
     for _ in range(attempts - 1):
         try:
             return fn(next_client())
         except RateLimitError as e:
             logger.warning("Groq key rate-limited (%s); trying the next key", _parse_retry_after(str(e)))
+    if not wait:
+        return fn(next_client())
     return call_with_retry(lambda: fn(next_client()))
 
 

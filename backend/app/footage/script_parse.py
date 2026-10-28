@@ -3,8 +3,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 
-from app.core.config import settings
-from app.core.groq_pool import call_rotating
+from app.core.groq_pool import call_models
 
 logger = logging.getLogger(__name__)
 
@@ -117,8 +116,8 @@ def _parse_chunk(lines: list[str], first: int, last: int, used_queries: list[str
         if used_queries:
             note += "Queries already used for earlier parts (don't repeat): " + "; ".join(used_queries[-30:]) + "\n"
         note += "\n"
-    response = call_rotating(lambda client: client.chat.completions.create(
-        model=settings.segmentation_model,
+    response = call_models(lambda client, model: client.chat.completions.create(
+        model=model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": note + numbered},

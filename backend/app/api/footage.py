@@ -18,8 +18,10 @@ from app.core.config import settings
 from app.footage.clips import MAX_CLIP_SECONDS, clip_filename, run_clip_download
 from app.footage.edit_plan import PLAN_MODES, PlanEditError, apply_plan_edit, plan_signature
 from app.footage.runner import (
+    CLIP_FILE_GONE,
     PENDING_RELEVANCE,
     enqueue_batch,
+    expire_missing_clips,
     insert_keyword,
     insert_segment,
     run_edit_plan,
@@ -364,8 +366,11 @@ def _ready_clip(clip_id: str):
     clip = db.fetch_one("SELECT * FROM footage_clips WHERE id=?", (clip_id,))
     if not clip:
         raise HTTPException(404, "clip not found")
-    if clip["status"] != "done" or not clip["file_path"] or not Path(clip["file_path"]).exists():
+    if clip["status"] != "done":
         raise HTTPException(404, "clip is not ready")
+    if not clip["file_path"] or not Path(clip["file_path"]).exists():
+        expire_missing_clips()
+        raise HTTPException(410, CLIP_FILE_GONE)
     return clip
 
 

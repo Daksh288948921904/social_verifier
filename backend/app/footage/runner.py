@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import uuid
+from pathlib import Path
 
 from app.core import db
 from app.core.config import settings
@@ -270,3 +271,19 @@ def recover_interrupted() -> None:
         "error_message='Interrupted by a server restart -- create the project again.' "
         "WHERE status='analyzing'"
     )
+    expire_missing_clips()
+
+
+CLIP_FILE_GONE = "The file was cleared when the server restarted -- download it again."
+
+
+def expire_missing_clips() -> None:
+    """Downloaded clips live on local disk, which hosts like Render wipe on
+    every restart and deploy while the database (Postgres) keeps the rows --
+    so flag clips whose file is gone, letting the UI offer a re-download
+    instead of a link that 404s."""
+    for c in db.fetch_all("SELECT id, file_path FROM footage_clips WHERE status='done'"):
+        if not c["file_path"] or not Path(c["file_path"]).exists():
+            db.execute(
+                "UPDATE footage_clips SET status='error', error_message=? WHERE id=?", (CLIP_FILE_GONE, c["id"]),
+            )

@@ -4,7 +4,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # str_strip_whitespace: values pasted into a hosting dashboard often carry
+    # a trailing newline, which would otherwise end up inside URLs and keys
+    # (e.g. a DATABASE_URL naming the database "postgres\n").
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", str_strip_whitespace=True)
 
     groq_api_key: str = ""
     groq_api_key_2: str = ""

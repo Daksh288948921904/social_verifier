@@ -239,6 +239,24 @@ CREATE TABLE IF NOT EXISTS footage_clips (
     completed_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS footage_picks (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES footage_projects(id),
+    segment_id TEXT NOT NULL REFERENCES footage_segments(id),
+    keyword_id TEXT,
+    video_id TEXT NOT NULL,
+    video_title TEXT NOT NULL DEFAULT '',
+    channel TEXT NOT NULL DEFAULT '',
+    thumbnail_url TEXT,
+    start_seconds REAL NOT NULL,
+    end_seconds REAL NOT NULL,
+    label TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'suggested',
+    clip_audio INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS footage_plans (
     project_id TEXT PRIMARY KEY REFERENCES footage_projects(id),
     status TEXT NOT NULL DEFAULT 'building',
@@ -266,6 +284,11 @@ CREATE TABLE IF NOT EXISTS footage_transcripts (
 COLUMN_MIGRATIONS = [
     ("reel_checks", "conclusion", "TEXT"),
     ("reel_checks", "batch_id", "TEXT"),
+    ("footage_plans", "pick_signature", "TEXT"),
+    ("footage_plans", "plan_mode", "TEXT"),
+    ("footage_plans", "signature", "TEXT"),
+    ("footage_keywords", "exclude_video_ids", "TEXT"),
+    ("footage_picks", "clip_audio", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 

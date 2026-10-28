@@ -282,7 +282,7 @@ export interface FootageProject {
   keywords_per_wave: number
   clips: FootageClip[]
   edit_plan: FootageEditPlan | null
-  moment_count: number
+  picks: FootagePick[]
 }
 
 export interface FootageProjectSummary {
@@ -319,9 +319,32 @@ export interface FootageClipRequest {
   end: number
 }
 
+export interface FootagePick {
+  id: string
+  segment_id: string
+  keyword_id: string | null
+  video_id: string
+  video_title: string
+  channel: string
+  thumbnail_url: string | null
+  start: number
+  end: number
+  label: string
+  description: string
+  source: 'suggested' | 'custom'
+  /** Keep the clip's own sound in the edit (otherwise muted under the voice-over). */
+  clip_audio: boolean
+}
+
+export type FootagePickRequest = Omit<FootagePick, 'id' | 'clip_audio'> & { clip_audio?: boolean }
+
+export type FootagePlanMode = 'picks' | 'auto' | 'mixed'
+
 export interface FootagePlanClip {
-  video_row_id: string
-  keyword_id: string
+  /** The sound choice made when the clip was pushed (picks only). */
+  clip_audio?: boolean
+  pick_id: string | null
+  keyword_id: string | null
   keyword_text: string
   video_id: string
   video_title: string
@@ -331,9 +354,9 @@ export interface FootagePlanClip {
   end: number
   label: string
   description: string
-  fit: string
-  score: number
-  estimated: boolean
+  // 'suggested'/'custom' = you pushed it; 'ai' = the AI chose it (auto/mixed plans)
+  source: 'suggested' | 'custom' | 'ai'
+  score: number | null
 }
 
 export interface FootagePlanBeat {
@@ -343,6 +366,10 @@ export interface FootagePlanBeat {
   note: string
   clip: FootagePlanClip | null
   clip_short_by?: number
+  /** Not from the script: the anchor's own extra wording, or a clip inserted between beats. */
+  added?: boolean
+  /** Keep the scraped clip's original sound (otherwise it runs muted under the voice-over). */
+  clip_audio?: boolean
 }
 
 export interface FootagePlanSegment {
@@ -356,6 +383,7 @@ export interface FootageEditPlan {
   status: 'building' | 'done' | 'error'
   error_message: string | null
   created_at: string
-  moment_count: number
-  plan: { segments: FootagePlanSegment[] } | null
+  mode: FootagePlanMode
+  stale: boolean
+  plan: { mode?: FootagePlanMode; edited?: boolean; segments: FootagePlanSegment[] } | null
 }

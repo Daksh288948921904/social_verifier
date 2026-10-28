@@ -5,7 +5,7 @@ import uuid
 
 from app.core import db
 from app.core.config import settings
-from app.footage.edit_plan import build_edit_plan, count_moments
+from app.footage.edit_plan import build_edit_plan, plan_signature
 from app.footage.matcher import match_video
 from app.footage.script_parse import parse_script
 from app.footage.search import search_videos
@@ -66,23 +66,38 @@ async def run_script_parse(project_id: str, script: str) -> None:
         )
 
 
-def enqueue_batch(project_id: str, keyword_ids: list[str]) -> str:
+def enqueue_batch(project_id: str, keyword_ids: list[str], fresh: bool = False) -> str:
     """Queues keywords as one batch and makes sure the project's worker is
     running. Re-running a keyword replaces its earlier results. Keywords
-    already in flight are left alone rather than queued twice."""
+    already in flight are left alone rather than queued twice.
+
+    fresh=True asks for *different* videos: every video already found for
+    the keyword (in this run and any earlier fresh runs) is skipped, since
+    the same query otherwise returns the same top results every time."""
     batch_id = str(uuid.uuid4())
     db.execute("INSERT INTO footage_batches (id, project_id) VALUES (?, ?)", (batch_id, project_id))
     for keyword_id in keyword_ids:
         row = db.fetch_one(
-            "SELECT status FROM footage_keywords WHERE id=? AND project_id=?", (keyword_id, project_id),
+            "SELECT status, exclude_video_ids FROM footage_keywords WHERE id=? AND project_id=?",
+            (keyword_id, project_id),
         )
         if not row or row["status"] in ("queued", "searching", "analyzing"):
             continue
+        exclude: list[str] = []
+        if fresh:
+            exclude = json.loads(row["exclude_video_ids"] or "[]")
+            exclude += [
+                r["video_id"] for r in db.fetch_all(
+                    "SELECT video_id FROM footage_videos WHERE keyword_id=?", (keyword_id,),
+                )
+            ]
+            exclude = list(dict.fromkeys(exclude))
         db.execute("DELETE FROM footage_videos WHERE keyword_id=?", (keyword_id,))
         db.execute(
             "UPDATE footage_keywords SET status='queued', progress='Waiting for its wave…', "
-            "error_message=NULL, batch_id=?, queued_at=datetime('now'), completed_at=NULL WHERE id=?",
-            (batch_id, keyword_id),
+            "error_message=NULL, batch_id=?, queued_at=datetime('now'), completed_at=NULL, "
+            "exclude_video_ids=? WHERE id=?",
+            (batch_id, json.dumps(exclude), keyword_id),
         )
     _finish_batches(project_id)  # a batch whose every keyword was skipped is done immediately
     if project_id not in _active_projects:
@@ -140,8 +155,13 @@ async def _process_keyword(keyword_id: str) -> None:
         keyword = dict(db.fetch_one("SELECT * FROM footage_keywords WHERE id=?", (keyword_id,)))
         segment = dict(db.fetch_one("SELECT * FROM footage_segments WHERE id=?", (keyword["segment_id"],)))
 
-        _set_keyword(keyword_id, "searching", "Searching YouTube…")
-        videos = await search_videos(keyword["text"], settings.footage_videos_per_keyword)
+        exclude = set(json.loads(keyword.get("exclude_video_ids") or "[]"))
+        limit = settings.footage_videos_per_keyword
+        _set_keyword(keyword_id, "searching", "Searching YouTube for new videos…" if exclude else "Searching YouTube…")
+        # Ask for enough extra results to still have `limit` left once the
+        # videos already seen are skipped (the API caps a page at 50).
+        found = await search_videos(keyword["text"], min(50, limit + len(exclude)))
+        videos = [v for v in found if v["video_id"] not in exclude][:limit]
         if not videos:
             db.execute(
                 "UPDATE footage_keywords SET status='done', progress='', completed_at=datetime('now') "
@@ -203,14 +223,14 @@ async def _process_keyword(keyword_id: str) -> None:
         )
 
 
-async def run_edit_plan(project_id: str) -> None:
+async def run_edit_plan(project_id: str, mode: str) -> None:
     try:
-        moment_count = count_moments(project_id)
-        plan = await asyncio.to_thread(build_edit_plan, project_id)
+        signature = plan_signature(project_id, mode)
+        plan = await asyncio.to_thread(build_edit_plan, project_id, mode)
         db.execute(
-            "UPDATE footage_plans SET status='done', plan_json=?, moment_count=?, "
+            "UPDATE footage_plans SET status='done', plan_json=?, signature=?, "
             "completed_at=datetime('now') WHERE project_id=?",
-            (json.dumps(plan), moment_count, project_id),
+            (json.dumps(plan), signature, project_id),
         )
     except Exception as e:
         logger.exception("Edit plan failed for footage project %s", project_id)

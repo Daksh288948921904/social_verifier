@@ -9,6 +9,11 @@ from app.core.groq_pool import call_rotating
 logger = logging.getLogger(__name__)
 
 MAX_SCRIPT_CHARS = 60_000
+# Groq's free tier allows 8k tokens per request-minute, prompt and answer
+# together: ~1k for the system prompt, ~3.5k (≈12k chars) of script, and
+# up to 3k for the JSON answer.
+CHUNK_CHARS = 12_000
+MAX_ANSWER_TOKENS = 3_000
 
 # A line that's only a segment heading, e.g. "SEGMENT 3 —" or "Part 2:".
 _MARKER_RE = re.compile(r"^\s*(segment|part|chapter|act|section)\s+[\w.]+\s*[—–:\-]*\s*$", re.IGNORECASE)
@@ -56,38 +61,106 @@ class ParsedScript:
     segments: list[ParsedSegment]
 
 
+def _has_text(line: str) -> bool:
+    return any(c.isalnum() for c in line)
+
+
+def _chunks(lines: list[str]) -> list[tuple[int, int]]:
+    """Splits the script into 1-based, inclusive line ranges whose numbered
+    text fits CHUNK_CHARS. Groq's on-demand tier caps a single request at
+    8k tokens per minute (prompt + answer), so a long script sent in one go
+    is rejected outright (413) no matter which key it goes to. Each part
+    ends at a segment marker or blank line where one is near, so the forced
+    break lands on a natural boundary."""
+    def cost(j: int) -> int:
+        return len(f"{j}: {lines[j - 1]}\n") if _has_text(lines[j - 1]) else 0
+
+    chunks: list[tuple[int, int]] = []
+    start, size = 1, 0
+    # Last line before a marker / last blank line / last line ending a sentence.
+    marker_end = blank_end = sentence_end = 0
+    for i in range(1, len(lines) + 1):
+        line = lines[i - 1].strip()
+        if i > start and _MARKER_RE.match(line):
+            marker_end = i - 1
+        elif i > start and not line:
+            blank_end = i
+        elif i > start and line.endswith((".", "!", "?", '."', ".”", "?”", "!”")):
+            sentence_end = i
+        size += cost(i)
+        if size > CHUNK_CHARS and i > start:
+            span = i - start
+            if marker_end - start >= span // 2:  # a marker in the back half
+                end = marker_end
+            elif blank_end - start >= span * 2 // 3:  # a blank line in the last third
+                end = blank_end
+            elif sentence_end - start >= span * 2 // 3:  # a full stop in the last third
+                end = sentence_end
+            else:
+                end = i - 1
+            chunks.append((start, end))
+            start, marker_end, blank_end, sentence_end = end + 1, 0, 0, 0
+            size = sum(cost(j) for j in range(start, i + 1))
+    chunks.append((start, len(lines)))
+    return [c for c in chunks if c[0] <= c[1]]
+
+
+def _parse_chunk(lines: list[str], first: int, last: int, used_queries: list[str], part: str) -> dict:
+    # Drop pure separator lines (e.g. "· · ·") from the numbered view so they
+    # don't waste tokens; their line numbers stay valid for slicing.
+    numbered = "\n".join(
+        f"{i}: {lines[i - 1]}" for i in range(first, last + 1) if _has_text(lines[i - 1])
+    )
+    note = ""
+    if part:
+        note = f"This is {part} of a longer script; the first segment here starts at line {first}.\n"
+        if used_queries:
+            note += "Queries already used for earlier parts (don't repeat): " + "; ".join(used_queries[-30:]) + "\n"
+        note += "\n"
+    response = call_rotating(lambda client: client.chat.completions.create(
+        model=settings.segmentation_model,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": note + numbered},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0.3,
+        reasoning_effort="low",
+        max_completion_tokens=MAX_ANSWER_TOKENS,
+    ))
+    return json.loads(response.choices[0].message.content)
+
+
 def parse_script(script: str) -> ParsedScript:
     """Splits a script into segments with suggested search keywords. The LLM
     only returns each segment's *first line number*, never the text itself --
     the excerpts are sliced back out of the original script here, so a long
     script costs no extra output tokens and its wording can't be paraphrased
-    or truncated along the way."""
+    or truncated along the way. Long scripts go in several parts (see
+    _chunks); line numbers are global, so the parts stitch back together."""
     lines = [line.rstrip() for line in script[:MAX_SCRIPT_CHARS].splitlines()]
-    # Drop pure separator lines (e.g. "· · ·") from the numbered view so they
-    # don't waste tokens; their line numbers stay valid for slicing.
-    numbered = "\n".join(
-        f"{i + 1}: {line}" for i, line in enumerate(lines) if any(c.isalnum() for c in line)
-    )
+    chunks = _chunks(lines)
 
-    response = call_rotating(lambda client: client.chat.completions.create(
-        model=settings.segmentation_model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": numbered},
-        ],
-        response_format={"type": "json_object"},
-        temperature=0.3,
-        reasoning_effort="low",
-    ))
-    data = json.loads(response.choices[0].message.content)
+    title = ""
+    raw_segments: list[dict] = []
+    starts: list[int] = []
+    used_queries: list[str] = []
+    for n, (first, last) in enumerate(chunks):
+        part = f"part {n + 1} of {len(chunks)}" if len(chunks) > 1 else ""
+        data = _parse_chunk(lines, first, last, used_queries, part)
+        title = title or str(data.get("title") or "")
+        chunk_segments = [s for s in data.get("segments") or [] if isinstance(s, dict)]
+        for j, s in enumerate(chunk_segments):
+            try:
+                start = max(first, min(last, int(s.get("start_line", first))))
+            except (TypeError, ValueError):
+                start = first
+            # Each part's first segment begins where the part does, so no
+            # lines fall between parts.
+            starts.append(first if j == 0 else start)
+            raw_segments.append(s)
+            used_queries += [str(k.get("text", "")).strip() for k in s.get("keywords") or [] if isinstance(k, dict)]
 
-    raw_segments = [s for s in data.get("segments") or [] if isinstance(s, dict)]
-    starts = []
-    for s in raw_segments:
-        try:
-            starts.append(max(1, min(len(lines), int(s.get("start_line", 1)))))
-        except (TypeError, ValueError):
-            starts.append(1)
     # Guard against out-of-order line numbers so every segment's slice is valid.
     for i in range(1, len(starts)):
         starts[i] = max(starts[i], starts[i - 1])
@@ -118,4 +191,4 @@ def parse_script(script: str) -> ParsedScript:
 
     if not segments:
         raise ValueError("Couldn't find any segments in this script")
-    return ParsedScript(title=str(data.get("title") or "Untitled script").strip(), segments=segments)
+    return ParsedScript(title=title.strip() or "Untitled script", segments=segments)

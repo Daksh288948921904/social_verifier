@@ -8,6 +8,9 @@ import type {
   EditorExport,
   EditorUpload,
   FootageClipRequest,
+  FootagePickRequest,
+  FootagePlanBeat,
+  FootagePlanMode,
   FootageProject,
   FootageProjectSummary,
   FullArticle,
@@ -177,10 +180,10 @@ export const api = {
   },
   deleteFootageProject: (id: string) =>
     request<{ ok: boolean }>(`/api/footage/projects/${id}`, { method: 'DELETE' }),
-  runFootageBatch: (projectId: string, keywordIds: string[]) =>
+  runFootageBatch: (projectId: string, keywordIds: string[], fresh = false) =>
     request<FootageProject>(`/api/footage/projects/${projectId}/batches`, {
       method: 'POST',
-      body: JSON.stringify({ keyword_ids: keywordIds }),
+      body: JSON.stringify({ keyword_ids: keywordIds, fresh }),
     }),
   addFootageKeyword: (projectId: string, segmentId: string, text: string) =>
     request<FootageProject>(`/api/footage/projects/${projectId}/segments/${segmentId}/keywords`, {
@@ -194,8 +197,23 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ clips }),
     }),
-  buildFootageEditPlan: (projectId: string) =>
-    request<FootageProject>(`/api/footage/projects/${projectId}/edit-plan`, { method: 'POST' }),
+  pushFootagePick: (projectId: string, pick: FootagePickRequest) =>
+    request<FootageProject>(`/api/footage/projects/${projectId}/picks`, {
+      method: 'POST',
+      body: JSON.stringify(pick),
+    }),
+  removeFootagePick: (pickId: string) =>
+    request<FootageProject>(`/api/footage/picks/${pickId}`, { method: 'DELETE' }),
+  updateFootageEditPlan: (projectId: string, segments: { segment_id: string; beats: FootagePlanBeat[] }[]) =>
+    request<FootageProject>(`/api/footage/projects/${projectId}/edit-plan`, {
+      method: 'PUT',
+      body: JSON.stringify({ segments }),
+    }),
+  buildFootageEditPlan: (projectId: string, mode: FootagePlanMode) =>
+    request<FootageProject>(`/api/footage/projects/${projectId}/edit-plan`, {
+      method: 'POST',
+      body: JSON.stringify({ mode }),
+    }),
   deleteFootageClip: (clipId: string) =>
     request<FootageProject>(`/api/footage/clips/${clipId}`, { method: 'DELETE' }),
 }

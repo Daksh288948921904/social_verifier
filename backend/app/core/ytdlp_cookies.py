@@ -1,4 +1,3 @@
-import shutil
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
@@ -22,9 +21,24 @@ def cookies_args(cookies_file: str):
         return
     with tempfile.TemporaryDirectory(prefix="ytdlp_cookies_") as tmp:
         writable_cookies = Path(tmp) / "cookies.txt"
-        shutil.copy(cookies_file, writable_cookies)
-        # shutil.copy preserves the source's permission bits too -- a Render
-        # Secret File is read-only, and that mode would carry straight over
-        # onto this copy otherwise, defeating the point.
+        writable_cookies.write_text(_normalize(Path(cookies_file).read_text(errors="replace")))
         writable_cookies.chmod(0o600)
         yield ["--cookies", str(writable_cookies)]
+
+
+def _normalize(text: str) -> str:
+    """Netscape cookie files must be tab-separated, but pasting one into a
+    web form (e.g. Render's Secret File editor) often turns the tabs into
+    spaces or adds CRLF line endings -- and yt-dlp then rejects the whole
+    file. Cookie fields never contain whitespace, so rebuild each 7-field
+    line with tabs."""
+    lines = []
+    for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        stripped = line.strip()
+        is_cookie = stripped and (not stripped.startswith("#") or stripped.startswith("#HttpOnly_"))
+        if is_cookie and "\t" not in stripped:
+            fields = stripped.split(None, 6)
+            if len(fields) == 7:
+                line = "\t".join(fields)
+        lines.append(line.rstrip() if not is_cookie else line)
+    return "\n".join(lines)

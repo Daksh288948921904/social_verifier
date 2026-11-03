@@ -102,7 +102,9 @@ def _video_stream(video_id: str) -> tuple[str, float, str]:
         )
     if result.returncode != 0:
         lines = [l for l in result.stderr.splitlines() if "ERROR" in l] or result.stderr.splitlines()
-        raise SmartClipError(lines[-1] if lines else "Couldn't read the video")
+        # "ERROR: [youtube] abc123XYZ_-: This live event will begin in 9 hours." -> the reason only
+        reason = re.sub(r"^ERROR:\s*(\[[^\]]+\]\s*)?([\w-]{11}:\s*)?", "", lines[-1]) if lines else ""
+        raise SmartClipError(reason or "Couldn't read the video")
     info = json.loads(result.stdout)
     if info.get("is_live"):
         raise SmartClipError("This is a live stream -- there's no fixed footage to clip yet")

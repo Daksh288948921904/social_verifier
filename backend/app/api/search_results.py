@@ -1,5 +1,6 @@
 import asyncio
 import re
+import subprocess
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -60,15 +61,34 @@ async def smart_clip(result_id: str, req: SmartClipRequest | None = None):
     return dict(_get_result(result_id))
 
 
+def _without_audio(path: Path) -> Path:
+    """A copy of the clip with the sound track dropped -- a stream copy, so
+    it takes a moment and leaves the picture untouched. Made once, then reused."""
+    muted = path.with_name(f"{path.stem}_noaudio.mp4")
+    if not muted.exists():
+        tmp = muted.with_suffix(".tmp.mp4")
+        r = subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-i", str(path), "-map", "0:v", "-c", "copy", "-an", str(tmp)],
+            capture_output=True, text=True, timeout=120,
+        )
+        if r.returncode != 0:
+            tmp.unlink(missing_ok=True)
+            raise HTTPException(500, f"Couldn't remove the audio: {r.stderr.strip()[-200:]}")
+        tmp.replace(muted)
+    return muted
+
+
 @router.get("/{result_id}/smart-video")
-def get_smart_video(result_id: str, download: bool = False):
+def get_smart_video(result_id: str, download: bool = False, audio: bool = True):
     row = _get_result(result_id)
     path = Path(row["smart_path"]) if row["smart_path"] else None
     if row["smart_status"] != "done" or not path or not path.exists():
         raise HTTPException(404, "smart clip not ready")
+    if not audio:
+        path = _without_audio(path)
     m, s = divmod(int(row["smart_start"] or 0), 60)
     title = re.sub(r'[\\/:*?"<>|]+', " ", row["title"]).strip()[:60] or "clip"
-    name = f"{title} {m}m{s:02d}s.mp4" if download else None
+    name = f"{title} {m}m{s:02d}s{'' if audio else ' (no audio)'}.mp4" if download else None
     return FileResponse(path, media_type="video/mp4", filename=name)
 
 

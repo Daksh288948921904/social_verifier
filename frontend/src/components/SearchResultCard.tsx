@@ -147,6 +147,12 @@ function SmartClipPanel({
             <a href={apiUrl(`/api/search-results/${r.id}/smart-video?download=true`)} className="flex-1">
               <Button size="sm" variant="primary" className="w-full">⬇ Download clip</Button>
             </a>
+            <a
+              href={apiUrl(`/api/search-results/${r.id}/smart-video?download=true&audio=false`)}
+              title="Same clip with the sound track removed"
+            >
+              <Button size="sm">⬇ No audio</Button>
+            </a>
             <Button size="sm" variant="ghost" disabled={running} onClick={onRun} title="Look again">
               ↻
             </Button>

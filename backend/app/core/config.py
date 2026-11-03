@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     # separated, tried in order). Each must support JSON mode and
     # reasoning_effort like gpt-oss-120b does.
     groq_fallback_models: str = "openai/gpt-oss-20b"
+    # Looks at video frames for the Search tab's smart clips (finding footage
+    # with no ticker/logo/captions) -- must accept image input on Groq.
+    vision_model: str = "qwen/qwen3.8-27b"
     verification_model: str = "gpt-4.1"
 
     ffmpeg_bin: str = "ffmpeg"

@@ -202,7 +202,14 @@ export interface SearchResult {
   status: SearchResultStatus
   video_path: string | null
   error_message: string | null
+  /** Smart clip: a clean (no ticker/logo/text) 8-10s stretch of a YouTube result. */
+  smart_status?: SmartClipStatus | null
+  smart_start?: number | null
+  smart_end?: number | null
+  smart_note?: string | null
 }
+
+export type SmartClipStatus = 'analyzing' | 'done' | 'none' | 'error'
 
 export interface SearchResponse {
   search_id: string

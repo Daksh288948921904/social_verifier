@@ -1,15 +1,34 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
+import type { SearchResult } from '../api/types'
 import { NavBar } from '../components/ui/NavBar'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { SearchResultCard } from '../components/SearchResultCard'
+import { searchResultKey } from '../components/searchResultKey'
+
+const CLIP_LENGTHS = [8, 9, 10]
 
 export function SearchPage() {
   const [query, setQuery] = useState('')
   const search = useMutation({ mutationFn: (q: string) => api.search(q) })
+  const [seconds, setSeconds] = useState(10)
+  const queryClient = useQueryClient()
+
+  // Queues a smart clip for every YouTube result that doesn't have one yet;
+  // the server runs two at a time and each card polls its own progress.
+  const smartAll = useMutation({
+    mutationFn: async (results: SearchResult[]) => {
+      for (const r of results) {
+        const latest = queryClient.getQueryData<SearchResult>(searchResultKey(r.id)) ?? r
+        if (latest.smart_status === 'done' || latest.smart_status === 'analyzing') continue
+        queryClient.setQueryData(searchResultKey(r.id), await api.smartSearchClip(r.id, seconds))
+      }
+    },
+  })
+  const youtubeResults = search.data?.results.filter((r) => r.source === 'youtube') ?? []
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -63,6 +82,37 @@ export function SearchPage() {
             </div>
           )}
 
+          {youtubeResults.length > 0 && (
+            <Card className="mt-4 flex flex-wrap items-center gap-3 p-3">
+              <div className="min-w-0 flex-1">
+                <p className="font-mono text-[11px] uppercase tracking-widest text-cyan-400">✦ Smart clips</p>
+                <p className="text-xs text-neutral-400">
+                  The AI looks through each YouTube video for a clean stretch that fits your search, with no
+                  news ticker, channel logo, captions or on-screen text, in one continuous shot, and cuts just
+                  that part.
+                </p>
+              </div>
+              <div className="flex items-center gap-1" role="radiogroup" aria-label="Clip length">
+                {CLIP_LENGTHS.map((s) => (
+                  <button
+                    key={s}
+                    role="radio"
+                    aria-checked={seconds === s}
+                    onClick={() => setSeconds(s)}
+                    className={`border-2 px-2.5 py-1 font-mono text-xs font-bold transition ${
+                      seconds === s ? 'border-cyan-500 bg-cyan-950 text-cyan-200' : 'border-neutral-700 text-neutral-400 hover:border-neutral-500'
+                    }`}
+                  >
+                    {s}s
+                  </button>
+                ))}
+              </div>
+              <Button variant="primary" disabled={smartAll.isPending} onClick={() => smartAll.mutate(youtubeResults)}>
+                {smartAll.isPending ? 'Queuing…' : `✦ Smart-pick all ${youtubeResults.length} YouTube videos`}
+              </Button>
+            </Card>
+          )}
+
           {search.data.results.length === 0 ? (
             <p className="mt-6 border-2 border-dashed border-neutral-800 p-6 text-center font-mono text-sm text-neutral-600">
               No results found.
@@ -70,7 +120,7 @@ export function SearchPage() {
           ) : (
             <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {search.data.results.map((r) => (
-                <SearchResultCard key={r.id} result={r} />
+                <SearchResultCard key={r.id} result={r} seconds={seconds} />
               ))}
             </div>
           )}

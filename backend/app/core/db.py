@@ -294,6 +294,14 @@ COLUMN_MIGRATIONS = [
     ("footage_plans", "signature", "TEXT"),
     ("footage_keywords", "exclude_video_ids", "TEXT"),
     ("footage_picks", "clip_audio", "INTEGER NOT NULL DEFAULT 0"),
+    # Search tab smart clips (app/search/smart_clip.py): a clean 8-10s
+    # stretch of a YouTube result. smart_status: NULL (not run) | analyzing |
+    # done | none (no clean stretch found) | error.
+    ("search_results", "smart_status", "TEXT"),
+    ("search_results", "smart_start", "REAL"),
+    ("search_results", "smart_end", "REAL"),
+    ("search_results", "smart_note", "TEXT"),
+    ("search_results", "smart_path", "TEXT"),
 ]
 
 

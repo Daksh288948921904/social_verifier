@@ -154,6 +154,8 @@ export const api = {
   fetchSearchResult: (id: string) =>
     request<SearchResult>(`/api/search-results/${id}/fetch`, { method: 'POST' }),
   getSearchResult: (id: string) => request<SearchResult>(`/api/search-results/${id}`),
+  smartSearchClip: (id: string, seconds: number) =>
+    request<SearchResult>(`/api/search-results/${id}/smart`, { method: 'POST', body: JSON.stringify({ seconds }) }),
 
   listFootageProjects: () => request<FootageProjectSummary[]>('/api/footage/projects'),
   getFootageProject: (id: string) => request<FootageProject>(`/api/footage/projects/${id}`),

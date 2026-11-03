@@ -12,6 +12,7 @@ from app.core import db
 from app.core.auth import SESSION_TOKEN
 from app.core.config import settings
 from app.footage.runner import recover_interrupted as recover_footage_jobs
+from app.search.runner import recover_interrupted as recover_search_jobs
 from app.rag import claim_store
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -60,6 +61,7 @@ app.include_router(footage.router)
 def startup():
     db.get_conn()  # initializes schema
     recover_footage_jobs()
+    recover_search_jobs()
 
     missing = [
         name for name, bin_path in (

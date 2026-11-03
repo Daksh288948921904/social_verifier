@@ -46,3 +46,29 @@ def download_clip(url: str, dest_dir: Path, cookies_file: str = "") -> Path:
     if not matches:
         raise DownloadError(f"yt-dlp reported success but produced no file for {url}")
     return matches[0]
+
+
+def download_range(url: str, start: float, end: float, dest: Path, cookies_file: str = "") -> Path:
+    """Fetches just [start, end] of whatever video is at `url` (YouTube,
+    Instagram, ...) rather than the whole thing. Keyframes are forced at the
+    cut points so the clip starts on the exact frame asked for."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        settings.ytdlp_bin, "--no-warnings", "--no-playlist",
+        # 720p is plenty and keeps the re-encode at the cut points quick; the
+        # combined non-DASH format comes first for the same reason as above.
+        "-f", "bv*[height<=720]+ba/b[height<=720]/best[format_id!*=dash]/bv*+ba/b",
+        "--download-sections", f"*{start:.2f}-{end:.2f}",
+        "--force-keyframes-at-cuts",
+        "--merge-output-format", "mp4",
+        "-o", str(dest.with_suffix(".%(ext)s")),
+    ]
+    with cookies_args(cookies_file) as cookie_args:
+        try:
+            result = subprocess.run([*cmd, *cookie_args, url], capture_output=True, text=True, timeout=600)
+        except subprocess.TimeoutExpired:
+            raise DownloadError("The download timed out after 10 minutes")
+    if result.returncode != 0 or not dest.exists():
+        lines = [l for l in result.stderr.splitlines() if "ERROR" in l] or result.stderr.splitlines()
+        raise DownloadError(lines[-1] if lines else "yt-dlp produced no file")
+    return dest

@@ -154,6 +154,10 @@ export const api = {
   fetchSearchResult: (id: string) =>
     request<SearchResult>(`/api/search-results/${id}/fetch`, { method: 'POST' }),
   getSearchResult: (id: string) => request<SearchResult>(`/api/search-results/${id}`),
+  cutSearchRange: (id: string, start: number, end: number) =>
+    request<SearchResult>(`/api/search-results/${id}/ranges`, { method: 'POST', body: JSON.stringify({ start, end }) }),
+  deleteSearchRange: (clipId: string) =>
+    request<SearchResult>(`/api/search-results/ranges/${clipId}`, { method: 'DELETE' }),
   smartSearchClip: (id: string, seconds: number) =>
     request<SearchResult>(`/api/search-results/${id}/smart`, { method: 'POST', body: JSON.stringify({ seconds }) }),
 

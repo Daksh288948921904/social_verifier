@@ -6,7 +6,7 @@ import re
 from app.core import db
 from app.core.config import settings
 from app.footage.clips import ClipDownloadError, download_section
-from app.search.fetch import DownloadError, cookies_for_source, download_clip
+from app.search.fetch import DownloadError, cookies_for_source, download_clip, download_range
 from app.search.smart_clip import SmartClipError, find_clean_clip
 
 logger = logging.getLogger(__name__)
@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 # Each smart clip grabs ~30 frames with ffmpeg, makes a few vision calls and
 # cuts a section with yt-dlp -- two at a time keeps the box and YouTube happy.
 _smart_slots = asyncio.Semaphore(2)
+# Your own timestamp cuts get their own slots, so they never queue behind
+# a batch of smart-clip analyses.
+_range_slots = asyncio.Semaphore(2)
 _VIDEO_ID_RE = re.compile(r"(?:v=|youtu\.be/|shorts/)([\w-]{11})")
 
 
@@ -52,6 +55,25 @@ async def run_smart_clip(result_id: str, seconds: float) -> None:
         _smart(result_id, status="error", note=str(e))
 
 
+async def run_range_clip(clip_id: str) -> None:
+    """Background job: cut your own [start, end] out of a search result."""
+    try:
+        clip = db.fetch_one(
+            "SELECT c.*, r.url, r.source FROM search_range_clips c "
+            "JOIN search_results r ON r.id = c.result_id WHERE c.id=?",
+            (clip_id,),
+        )
+        start, end = clip["start_seconds"], clip["end_seconds"]
+        dest = settings.data_dir / "search_clips" / clip["result_id"] / f"range_{start:.1f}-{end:.1f}.mp4"
+        async with _range_slots:
+            await asyncio.to_thread(download_range, clip["url"], start, end, dest, cookies_for_source(clip["source"]))
+        db.execute("UPDATE search_range_clips SET status='done', file_path=? WHERE id=?", (str(dest), clip_id))
+    except Exception as e:
+        if not isinstance(e, DownloadError):
+            logger.exception("Range clip %s crashed", clip_id)
+        db.execute("UPDATE search_range_clips SET status='error', error_message=? WHERE id=?", (str(e), clip_id))
+
+
 def recover_interrupted() -> None:
     """Background jobs live only in this process -- anything mid-flight when
     the server stopped is orphaned, so let the user run it again."""
@@ -62,6 +84,10 @@ def recover_interrupted() -> None:
     db.execute(
         "UPDATE search_results SET status='error', "
         "error_message='Interrupted by a server restart -- fetch it again.' WHERE status='fetching'"
+    )
+    db.execute(
+        "UPDATE search_range_clips SET status='error', "
+        "error_message='Interrupted by a server restart -- cut it again.' WHERE status='cutting'"
     )
 
 

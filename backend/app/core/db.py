@@ -154,6 +154,20 @@ CREATE TABLE IF NOT EXISTS searches (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Your own timestamps on a search result: just [start, end] of the video,
+-- cut with yt-dlp. Stored with its sound; the no-audio copy is made when
+-- someone downloads it that way.
+CREATE TABLE IF NOT EXISTS search_range_clips (
+    id TEXT PRIMARY KEY,
+    result_id TEXT NOT NULL,
+    start_seconds REAL NOT NULL,
+    end_seconds REAL NOT NULL,
+    status TEXT NOT NULL DEFAULT 'cutting',
+    file_path TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS search_results (
     id TEXT PRIMARY KEY,
     search_id TEXT NOT NULL REFERENCES searches(id),

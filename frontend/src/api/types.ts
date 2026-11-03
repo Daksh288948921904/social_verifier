@@ -207,6 +207,16 @@ export interface SearchResult {
   smart_start?: number | null
   smart_end?: number | null
   smart_note?: string | null
+  /** Your own timestamps cut from this result. */
+  ranges?: SearchRangeClip[]
+}
+
+export interface SearchRangeClip {
+  id: string
+  start: number
+  end: number
+  status: 'cutting' | 'done' | 'error'
+  error_message: string | null
 }
 
 export type SmartClipStatus = 'analyzing' | 'done' | 'none' | 'error'

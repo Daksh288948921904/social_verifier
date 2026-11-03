@@ -1,3 +1,4 @@
+import asyncio
 import html
 import json
 import logging
@@ -35,7 +36,9 @@ async def search_videos(query: str, limit: int) -> list[dict]:
             ]
         except Exception as e:
             logger.warning("YouTube API search failed for %r, falling back to yt-dlp: %s", query, e)
-    return _ytdlp_search(query, limit)
+    # In a thread: yt-dlp takes several seconds and would otherwise freeze
+    # every other request on the server while it runs.
+    return await asyncio.to_thread(_ytdlp_search, query, limit)
 
 
 def _ytdlp_search(query: str, limit: int) -> list[dict]:

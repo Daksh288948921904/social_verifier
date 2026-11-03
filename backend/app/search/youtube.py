@@ -1,5 +1,7 @@
 import httpx
 
+from app.search.google_errors import raise_for_google_error
+
 SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
 
 
@@ -13,7 +15,7 @@ async def search(client: httpx.AsyncClient, query: str, max_results: int, api_ke
         "maxResults": max_results,
         "key": api_key,
     })
-    resp.raise_for_status()
+    raise_for_google_error(resp, "YouTube API")
     data = resp.json()
 
     items = []

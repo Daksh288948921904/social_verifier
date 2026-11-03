@@ -1,5 +1,7 @@
 import httpx
 
+from app.search.google_errors import raise_for_google_error
+
 CSE_URL = "https://www.googleapis.com/customsearch/v1"
 
 
@@ -15,7 +17,7 @@ async def search(
     resp = await client.get(CSE_URL, params={
         "key": api_key, "cx": cx, "q": query, "num": min(max_results, 10),
     })
-    resp.raise_for_status()
+    raise_for_google_error(resp, "Google Custom Search")
     data = resp.json()
 
     items = []
